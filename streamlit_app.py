@@ -24,7 +24,8 @@ def load_data_and_models():
 
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
     X = qqq[features].copy()
-    X.columns = [str(col).strip() for col in X.columns]
+    # Fix 1: Force flat index
+    X.columns = pd.Index([str(col).strip() for col in X.columns])  # Changed here
     y = qqq['Close'].copy()
 
     # Explicitly assign columns to ensure feature names match
@@ -65,8 +66,9 @@ future_df = pd.DataFrame({
 
 features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
 future_X = future_df[features].copy()
-future_X.columns = future_X.columns.astype(str).str.strip()
-future_X = future_X[features]  # Re-align columns explicitly
+# Fix 2: Future dataframe columns
+future_X.columns = pd.Index([str(col).strip() for col in future_X.columns])  # Changed here
+future_X = future_X[features]
 
 if model_choice == "XGBoost":
     forecast = xgb_model.predict(future_X)
@@ -89,7 +91,8 @@ st.plotly_chart(fig, use_container_width=True)
 
 y_true = qqq['Close']
 X_true = qqq[features].copy()
-X_true.columns = X_true.columns.astype(str).str.strip()
+# Fix 3: Metrics dataframe columns
+X_true.columns = pd.Index([str(col).strip() for col in X_true.columns])  # Changed here
 X_true = X_true[features]
 y_pred = xgb_model.predict(X_true)
 
