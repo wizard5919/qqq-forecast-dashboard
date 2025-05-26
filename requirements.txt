@@ -5,6 +5,7 @@ yfinance
 xgboost
 scikit-learn
 plotly
+matplotlib
 protobuf
 setuptools
 python-dateutil
