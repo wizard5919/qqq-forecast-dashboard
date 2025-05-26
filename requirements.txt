@@ -1,8 +1,9 @@
-streamlit
-pandas
-numpy
-yfinance
-xgboost
-scikit-learn
-plotly
+streamlit>=1.32.0
+pandas==2.0.3  # Critical fix for MultiIndex behavior
+numpy==1.24.3
+yfinance==0.2.33
+xgboost==1.7.6
+scikit-learn==1.3.2
+plotly==5.18.0
+protobuf==3.20.3  # Fixes serialization issues with Streamlit
 
