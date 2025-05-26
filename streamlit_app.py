@@ -33,7 +33,8 @@ def load_model_and_data():
     qqq['VIX'] = vix
     qqq['10Y_Yield'] = treasury10
     qqq['2Y_Yield'] = treasury2
-    qqq['Yield_Spread'] = (treasury10 - treasury2).reindex(qqq.index, method='ffill')
+    yield_spread = treasury10.values - treasury2.values
+    qqq['Yield_Spread'] = pd.Series(yield_spread, index=qqq.index)
     qqq['EPS_Growth'] = np.linspace(5, 15, len(qqq))
     qqq['Sentiment'] = 70
 
