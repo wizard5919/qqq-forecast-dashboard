@@ -65,11 +65,8 @@ future_df = pd.DataFrame({
 
 # Critical Fix: Future dataframe columns
 future_df.columns = pd.Index([str(col).strip() for col in future_df.columns])
+# ✅ Corrected prediction (in the forecasting section)
 forecast = model.predict(future_df[['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']])
-
-# --- Rest of your visualization code remains unchanged ---
-future_df.columns = future_df.columns.str.strip()
-forecast = model.predict(future_df)
 
 # 📊 Build the chart
 fig = go.Figure()
