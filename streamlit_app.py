@@ -51,19 +51,21 @@ def load_model_and_data():
     model_ensemble = VotingRegressor(estimators=[('xgb', model_xgb), ('lr', model_lr)])
     model_ensemble.fit(X, y)
 
-    return model_ensemble, features, qqq
+    return model_ensemble, features, qqq, qqq['Close'].iloc[-1]
 
-model, features, qqq_data = load_model_and_data()
+model, features, qqq_data, latest_close = load_model_and_data()
 
 st.title("📈 QQQ Forecast Simulator")
+
+use_live_price = st.checkbox("📡 Use Live QQQ Close ($%.2f) as Starting Point" % latest_close, value=True)
 
 horizon = st.selectbox("📆 Forecast Horizon (days)", [30, 60, 90], index=0)
 show_tech = st.checkbox("📊 Show Technical Indicators (MA 20/50, Volatility)")
 
 scenarios = {
-    "Recession": dict(fed=5.5, cpi=6.5, unemp=6.0, gdp=18000, vix=50.0, yield_=2.0, sent=40),
-    "Rate Cut": dict(fed=3.0, cpi=2.5, unemp=4.0, gdp=23000, vix=18.0, yield_=3.5, sent=75),
-    "Soft Landing": dict(fed=4.0, cpi=3.0, unemp=4.5, gdp=22000, vix=22.0, yield_=4.2, sent=65)
+    "Recession": dict(fed=5.5, cpi=6.5, unemp=6.0, gdp=19000, vix=45.0, yield_=2.5, sent=35),
+    "Rate Cut": dict(fed=3.0, cpi=2.0, unemp=3.8, gdp=25000, vix=15.0, yield_=3.0, sent=85),
+    "Soft Landing": dict(fed=4.0, cpi=2.8, unemp=4.2, gdp=24000, vix=18.0, yield_=3.8, sent=70)
 }
 
 scenario = st.radio("Select a Scenario", ["Custom"] + list(scenarios.keys()))
