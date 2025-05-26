@@ -24,7 +24,7 @@ def load_data_and_models():
 
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
     X = qqq[features].copy()
-    X.columns = X.columns.str.strip()
+    X.columns = X.columns.astype(str).str.strip()
     y = qqq['Close'].copy()
 
     # Explicitly assign columns to ensure feature names match
@@ -65,7 +65,7 @@ future_df = pd.DataFrame({
 
 features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
 future_X = future_df[features].copy()
-future_X.columns = future_X.columns.str.strip()
+future_X.columns = future_X.columns.astype(str).str.strip()
 future_X = future_X[features]  # Re-align columns explicitly
 
 if model_choice == "XGBoost":
@@ -89,7 +89,7 @@ st.plotly_chart(fig, use_container_width=True)
 
 y_true = qqq['Close']
 X_true = qqq[features].copy()
-X_true.columns = X_true.columns.str.strip()
+X_true.columns = X_true.columns.astype(str).str.strip()
 X_true = X_true[features]
 y_pred = xgb_model.predict(X_true)
 
