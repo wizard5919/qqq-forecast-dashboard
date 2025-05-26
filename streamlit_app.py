@@ -24,7 +24,7 @@ def load_data_and_models():
 
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
     X = qqq[features].copy()
-    X.columns = X.columns.astype(str).str.strip()
+    X.columns = [str(col).strip() for col in X.columns]
     y = qqq['Close'].copy()
 
     # Explicitly assign columns to ensure feature names match
