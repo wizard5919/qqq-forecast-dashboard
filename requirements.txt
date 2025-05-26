@@ -1,10 +1,11 @@
-streamlit==1.32.2
-pandas==2.2.2  # Updated to compatible version
-numpy==1.26.4  # Newer version without distutils dependency
-yfinance==0.2.33
-xgboost==2.0.3  # Updated XGBoost for Python 3.13
-scikit-learn==1.4.2
-plotly==5.18.0
-protobuf==3.20.3
-setuptools==69.5.1  # Modern version without distutils dependency
-python-dateutil==2.8.2
+streamlit
+pandas
+numpy
+yfinance
+xgboost
+scikit-learn
+plotly
+protobuf
+setuptools
+python-dateutil
+cython
