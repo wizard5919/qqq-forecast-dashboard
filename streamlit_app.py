@@ -19,15 +19,29 @@ def load_model_and_data():
         # Download data
         start_date = "2018-01-01"
         qqq = yf.download("QQQ", start=start_date, progress=False)
-        vix = yf.download("^VIX", start=start_date, progress=False)["Close"].squeeze()
-        treasury10 = yf.download("^TNX", start=start_date, progress=False)["Close"].squeeze()
-        treasury2 = yf.download("^IRX", start=start_date, progress=False)["Close"].squeeze()
+        vix = yf.download("^VIX", start=start_date, progress=False)
+        treasury10 = yf.download("^TNX", start=start_date, progress=False)
+        treasury2 = yf.download("^IRX", start=start_date, progress=False)
 
-        # Ensure data alignment
-        qqq = qqq.dropna().copy()
-        vix = vix.reindex(qqq.index, method='ffill').fillna(method='ffill')
-        treasury10 = treasury10.reindex(qqq.index, method='ffill').fillna(method='ffill')
-        treasury2 = treasury2.reindex(qqq.index, method='ffill').fillna(method='ffill')
+        # Check if data is empty
+        if qqq.empty or vix.empty or treasury10.empty or treasury2.empty:
+            raise ValueError("One or more data downloads returned empty DataFrames")
+
+        # Flatten MultiIndex if present
+        if isinstance(qqq.columns, pd.MultiIndex):
+            qqq.columns = [col[0] for col in qqq.columns]
+        if isinstance(vix.columns, pd.MultiIndex):
+            vix.columns = [col[0] for col in vix.columns]
+        if isinstance(treasury10.columns, pd.MultiIndex):
+            treasury10.columns = [col[0] for col in treasury10.columns]
+        if isinstance(treasury2.columns, pd.MultiIndex):
+            treasury2.columns = [col[0] for col in treasury2.columns]
+
+        # Extract 'Close' series and ensure alignment
+        qqq = qqq[['Close']].dropna().copy()
+        vix = vix['Close'].squeeze().reindex(qqq.index, method='ffill').fillna(method='ffill')
+        treasury10 = treasury10['Close'].squeeze().reindex(qqq.index, method='ffill').fillna(method='ffill')
+        treasury2 = treasury2['Close'].squeeze().reindex(qqq.index, method='ffill').fillna(method='ffill')
 
         # Add features
         qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)
@@ -55,7 +69,7 @@ def load_model_and_data():
         y = qqq['Close']
 
         # Ensure feature names are strings
-        X.columns = X.columns.astype(str).str.strip()
+        X.columns = X.columns.astype(str)
 
         # Train XGBoost model
         model_xgb = xgb.XGBRegressor(n_estimators=100, random_state=42)
@@ -70,6 +84,7 @@ def load_model_and_data():
 model, features, qqq_data, latest_close = load_model_and_data()
 
 if model is None or qqq_data is None:
+    st.error("Failed to load model or data. Please try again later.")
     st.stop()
 
 st.title("📈 QQQ Forecast Simulator")
@@ -127,18 +142,22 @@ future_df = pd.DataFrame({
 future_df = future_df[features]
 
 # Make predictions
-forecast = model.predict(future_df)
-forecast *= (1 + macro_bias)
+try:
+    forecast = model.predict(future_df)
+    forecast *= (1 + macro_bias)
 
-# Adjust forecast to match live price if selected
-if use_live_price:
-    shift = latest_close - forecast[0]
-    forecast += shift
+    # Adjust forecast to match live price if selected
+    if use_live_price:
+        shift = latest_close - forecast[0]
+        forecast += shift
 
-# Confidence intervals
-confidence_std = 0.03 * forecast
-forecast_upper = forecast + confidence_std
-forecast_lower = forecast - confidence_std
+    # Confidence intervals
+    confidence_std = 0.03 * forecast
+    forecast_upper = forecast + confidence_std
+    forecast_lower = forecast - confidence_std
+except Exception as e:
+    st.error(f"Error making predictions: {e}")
+    st.stop()
 
 # Main forecast plot
 fig = go.Figure()
@@ -165,11 +184,14 @@ sens_fig = go.Figure()
 for val in cpi_range:
     temp_df = future_df.copy()
     temp_df['CPI'] = val
-    temp_pred = model.predict(temp_df)
-    if use_live_price:
-        temp_pred += (latest_close - temp_pred[0])
-    temp_pred *= (1 + macro_bias)
-    sens_fig.add_trace(go.Scatter(x=future_dates, y=temp_pred, name=f"CPI={val:.1f}"))
+    try:
+        temp_pred = model.predict(temp_df)
+        if use_live_price:
+            temp_pred += (latest_close - temp_pred[0])
+        temp_pred *= (1 + macro_bias)
+        sens_fig.add_trace(go.Scatter(x=future_dates, y=temp_pred, name=f"CPI={val:.1f}"))
+    except Exception as e:
+        st.warning(f"Error in CPI sensitivity analysis for CPI={val:.1f}: {e}")
 
 sens_fig.update_layout(title="QQQ Forecast Sensitivity to CPI", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
 st.plotly_chart(sens_fig, use_container_width=True)
@@ -194,11 +216,14 @@ if compare:
             'Sentiment': s['sent']
         }, index=future_dates)
         comp_df = comp_df[features]
-        yhat = model.predict(comp_df)
-        if use_live_price:
-            yhat += (latest_close - yhat[0])
-        yhat *= (1 + macro_bias)
-        comp_fig.add_trace(go.Scatter(x=future_dates, y=yhat, name=name))
+        try:
+            yhat = model.predict(comp_df)
+            if use_live_price:
+                yhat += (latest_close - yhat[0])
+            yhat *= (1 + macro_bias)
+            comp_fig.add_trace(go.Scatter(x=future_dates, y=yhat, name=name))
+        except Exception as e:
+            st.warning(f"Error in scenario {name}: {e}")
     comp_fig.update_layout(title="Scenario Forecast Comparison", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
     st.plotly_chart(comp_fig, use_container_width=True)
 
@@ -209,22 +234,28 @@ if backtest_mode:
     backtest_date = st.date_input("Start Backtest From", value=datetime(2023, 1, 1))
     back_df = qqq_data.loc[qqq_data.index >= pd.to_datetime(backtest_date)].copy()
     if not back_df.empty:
-        back_df['Prediction'] = model.predict(back_df[features])
-        fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Close'], name="Actual", line=dict(color='black')))
-        fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Prediction'], name="Predicted", line=dict(color='blue')))
-        fig_bt.update_layout(title="Backtest: QQQ Actual vs Predicted", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
-        st.plotly_chart(fig_bt, use_container_width=True)
+        try:
+            back_df['Prediction'] = model.predict(back_df[features])
+            fig_bt = go.Figure()
+            fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Close'], name="Actual", line=dict(color='black')))
+            fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Prediction'], name="Predicted", line=dict(color='blue')))
+            fig_bt.update_layout(title="Backtest: QQQ Actual vs Predicted", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
+            st.plotly_chart(fig_bt, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Error in backtest: {e}")
     else:
         st.warning("No data available for the selected backtest period.")
 
 # Feature Importance
 st.subheader("📌 Feature Importance (XGBoost)")
 if st.checkbox("Show Feature Importance"):
-    fig_imp, ax = plt.subplots(figsize=(10, 6))
-    xgb.plot_importance(model.get_booster(), ax=ax, importance_type='weight')
-    plt.tight_layout()
-    st.pyplot(fig_imp)
+    try:
+        fig_imp, ax = plt.subplots(figsize=(10, 6))
+        xgb.plot_importance(model.get_booster(), ax=ax, importance_type='weight')
+        plt.tight_layout()
+        st.pyplot(fig_imp)
+    except Exception as e:
+        st.warning(f"Error displaying feature importance: {e}")
 
 # Download Forecast Data
 st.subheader("📥 Download Forecast Data")
@@ -241,5 +272,8 @@ if show_tech:
 
 # Download Forecast Chart
 buf = io.BytesIO()
-fig.write_image(buf, format="png")
-st.download_button("Download Forecast Chart as PNG", buf.getvalue(), file_name="forecast_chart.png")
+try:
+    fig.write_image(buf, format="png")
+    st.download_button("Download Forecast Chart as PNG", buf.getvalue(), file_name="forecast_chart.png")
+except Exception as e:
+    st.warning(f"Error generating chart download: {e}")
