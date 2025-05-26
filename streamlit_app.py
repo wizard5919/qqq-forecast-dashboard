@@ -45,7 +45,10 @@ def load_model_and_data():
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                 '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment']
     X = qqq[features].copy()
-    X.columns = X.columns.str.strip()
+    if isinstance(X.columns, pd.MultiIndex):
+        X.columns = ["_".join(map(str, col)).strip() for col in X.columns]
+    else:
+        X.columns = X.columns.astype(str).str.strip()
     
     y = qqq['Close']
 
