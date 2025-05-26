@@ -28,7 +28,7 @@ def load_model_and_data():
             raise ValueError("Missing 'Close' column. Available columns: " + str(qqq.columns.tolist()))
 
     # --- Feature Engineering ---
-    qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)
+    qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)  # ✅ Directly use index
     qqq['FedFunds'] = 5.25  # Default training value
     qqq['Unemployment'] = 3.9
     qqq['CPI'] = 3.5
@@ -70,7 +70,7 @@ forecast = model.predict(future_df[['Date_Ordinal', 'FedFunds', 'Unemployment', 
 
 # 📊 Build the chart
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=qqq['Date'], y=qqq['Close'], name="Historical QQQ", line=dict(color='blue')))
+fig.add_trace(go.Scatter(x=qqq.index, y=qqq['Close'], name="Historical QQQ", line=dict(color='blue')))  # Use index directly
 fig.add_trace(go.Scatter(x=future_dates, y=forecast, name="Forecast (XGBoost)", line=dict(color='orange')))
 fig.add_trace(go.Scatter(x=[qqq.index.min(), future_dates.max()], y=[500, 500], name='Breakout Level ($500)', line=dict(color='red', dash='dot')))
 
