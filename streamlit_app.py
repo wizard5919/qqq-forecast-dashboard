@@ -55,7 +55,7 @@ def load_model_and_data():
     model_xgb = xgb.XGBRegressor(n_estimators=100)
     model_lr = LinearRegression()
     model_xgb.fit(X, y)
-    model_lr.fit(X[['Date_Ordinal']], y)
+    model_lr.fit(X.loc[:, ['Date_Ordinal']], y)
     model_ensemble = VotingRegressor(estimators=[('xgb', model_xgb), ('lr', model_lr)])
     model_ensemble.fit(X, y)
 
