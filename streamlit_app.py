@@ -5,103 +5,81 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import yfinance as yf
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import VotingRegressor
 import xgboost as xgb
 import plotly.graph_objects as go
 
 @st.cache_resource
 def load_model_and_data():
-    # --- Data Loading ---
     qqq = yf.download("QQQ", start="2018-01-01")
+    vix = yf.download("^VIX", start="2018-01-01")['Close']
+    treasury10 = yf.download("^TNX", start="2018-01-01")['Close']
+
     qqq = qqq.dropna().copy()
+    vix = vix.reindex(qqq.index, method='ffill')
+    treasury10 = treasury10.reindex(qqq.index, method='ffill')
 
-    # --- Critical Fix: Force flat column index ---
-    if isinstance(qqq.columns, pd.MultiIndex):
-        qqq.columns = pd.Index(['_'.join(col).strip() for col in qqq.columns.values])
-    else:
-        qqq.columns = pd.Index([str(col).strip() for col in qqq.columns])  # Force flat index
-
-    # --- Column Validation ---
-    if 'Close' not in qqq.columns:
-        if 'Close_QQQ' in qqq.columns:
-            qqq.rename(columns={'Close_QQQ': 'Close'}, inplace=True)
-        else:
-            raise ValueError("Missing 'Close' column. Available columns: " + str(qqq.columns.tolist()))
-
-    # --- Feature Engineering ---
-    qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)  # ✅ Directly use index
-    qqq['FedFunds'] = 5.25  # Default training value
+    qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)
+    qqq['FedFunds'] = 5.25
     qqq['Unemployment'] = 3.9
     qqq['CPI'] = 3.5
     qqq['GDP'] = 21000
+    qqq['VIX'] = vix
+    qqq['10Y_Yield'] = treasury10
+    qqq['Sentiment'] = 70  # placeholder constant
 
-    # --- Model Training ---
-    features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
-    X = qqq[features].copy()
-    X.columns = pd.Index([str(col).strip() for col in X.columns])  # Explicit flat index
+    features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX', '10Y_Yield', 'Sentiment']
+    X = qqq[features]
     y = qqq['Close']
 
-    model = xgb.XGBRegressor(n_estimators=300, max_depth=4, learning_rate=0.05, random_state=42)
-    model.fit(X, y)
-    return model, qqq
+    model_xgb = xgb.XGBRegressor(n_estimators=100)
+    model_lr = LinearRegression()
+    model_ensemble = VotingRegressor(estimators=[('xgb', model_xgb), ('lr', model_lr)])
+    model_ensemble.fit(X, y)
 
-# --- UI Section ---
-model, qqq = load_model_and_data()
+    return model_ensemble, features, qqq
+
+model, features, qqq_data = load_model_and_data()
 
 st.title("📈 QQQ Forecast Simulator")
-col1, col2, col3 = st.columns(3)
-fed_rate = col1.slider("Fed Funds Rate (%)", 0.0, 7.0, 5.25, 0.25)
-cpi = col2.slider("CPI (%)", 1.0, 10.0, 3.5, 0.1)
-unemp = col3.slider("Unemployment (%)", 2.0, 10.0, 3.9, 0.1)
 
-# --- Forecasting ---
-future_dates = pd.date_range(start=qqq.index.max() + pd.Timedelta(days=1), end="2025-12-31")
+with st.expander("Adjust Macro Variables"):
+    fed_rate = st.slider("Fed Funds Rate (%)", 0.0, 10.0, 5.25)
+    cpi = st.slider("CPI (%)", 1.0, 10.0, 3.5)
+    unemployment = st.slider("Unemployment (%)", 2.0, 10.0, 3.9)
+    gdp = st.slider("GDP ($B)", 10000, 30000, 21000)
+    vix_val = st.slider("VIX Index", 10.0, 80.0, 20.0)
+    treasury_yield = st.slider("10-Year Treasury Yield (%)", 0.5, 6.0, 4.0)
+    sentiment = st.slider("Consumer Sentiment (1-100)", 20, 100, 70)
+
+future_dates = pd.date_range(start=datetime.today(), periods=30)
+date_ordinals = future_dates.map(datetime.toordinal)
+
 future_df = pd.DataFrame({
-    'Date_Ordinal': future_dates.map(datetime.toordinal),
+    'Date_Ordinal': date_ordinals,
     'FedFunds': fed_rate,
-    'Unemployment': unemp,
+    'Unemployment': unemployment,
     'CPI': cpi,
-    'GDP': 21000
+    'GDP': gdp,
+    'VIX': vix_val,
+    '10Y_Yield': treasury_yield,
+    'Sentiment': sentiment
 })
 
-# Critical Fix: Future dataframe columns
-future_df.columns = pd.Index([str(col).strip() for col in future_df.columns])
-# ✅ Corrected prediction (in the forecasting section)
-forecast = model.predict(future_df[['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']])
+forecast = model.predict(future_df)
 
-# 📊 Build the chart
+st.metric("Forecasted 1-Month QQQ", f"${forecast[-1]:.2f}", delta=f"{(forecast[-1] - forecast[0]):.2f}")
+
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=qqq.index, y=qqq['Close'], name="Historical QQQ", line=dict(color='blue')))  # Use index directly
-fig.add_trace(go.Scatter(x=future_dates, y=forecast, name="Forecast (XGBoost)", line=dict(color='orange')))
-fig.add_trace(go.Scatter(x=[qqq.index.min(), future_dates.max()], y=[500, 500], name='Breakout Level ($500)', line=dict(color='red', dash='dot')))
-
-# Highlight breakout points
-above_500 = forecast > 500
-if above_500.any(): # Only add trace if there are points above 500
-    fig.add_trace(go.Scatter(
-        x=future_dates[above_500],
-        y=forecast[above_500],
-        mode='markers',
-        name='Above $500',
-        marker=dict(color='green', size=7),
-        hovertemplate='Price: %{y:.2f}<br>Date: %{x|%Y-%m-%d}<extra>Breakout</extra>'
-    ))
-
-fig.update_layout(
-    title="QQQ Forecast (2024–2025)",
-    xaxis_title='Date',
-    yaxis_title='QQQ Price',
-    template='plotly_dark',
-    height=600,
-    hovermode='x unified',
-    legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center')
-)
+fig.add_trace(go.Scatter(x=future_dates, y=forecast, mode='lines+markers', name='Forecast'))
+fig.update_layout(title="QQQ Forecast (Next 30 Days)", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
 
 st.plotly_chart(fig, use_container_width=True)
 
-# 🔢 Summary of breakout duration
-days_above_500 = int((forecast > 500).sum())
-st.info(f"📈 Forecasted days above $500: **{days_above_500}**")
-
-# Footer disclaimer
-st.markdown("---")
-st.caption("📊 Forecast is for illustrative purposes only and does not constitute financial advice.")
+if st.checkbox("Show Feature Importance (XGBoost)"):
+    import matplotlib.pyplot as plt
+    booster = model.named_estimators_['xgb']
+    fig_imp, ax = plt.subplots()
+    xgb.plot_importance(booster, ax=ax)
+    st.pyplot(fig_imp)
