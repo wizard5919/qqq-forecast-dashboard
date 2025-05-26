@@ -55,7 +55,7 @@ def load_model_and_data():
     model_ensemble = VotingRegressor(estimators=[('xgb', model_xgb), ('lr', model_lr)])
     model_ensemble.fit(X, y)
 
-    return model_ensemble, features, qqq, qqq['Close'].iloc[-1]
+    return model_xgb, features, qqq, qqq['Close'].iloc[-1]
 
 model, features, qqq_data, latest_close = load_model_and_data()
 
