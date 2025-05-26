@@ -45,13 +45,13 @@ def load_model_and_data():
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                 '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment']
     X = qqq[features].copy()
-    if isinstance(X.columns, pd.MultiIndex):
-        X.columns = ["_".join(map(str, col)).strip() for col in X.columns.values]
     
     y = qqq['Close']
 
     model_xgb = xgb.XGBRegressor(n_estimators=100)
     model_lr = LinearRegression()
+    model_xgb.fit(X.values, y.values, feature_names=features)
+    model_lr.fit(X[['Date_Ordinal']], y)
     model_ensemble = VotingRegressor(estimators=[('xgb', model_xgb), ('lr', model_lr)])
     model_ensemble.fit(X, y)
 
