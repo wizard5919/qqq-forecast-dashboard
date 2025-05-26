@@ -1,3 +1,4 @@
+
 import streamlit as st
 st.set_page_config(page_title="📈 QQQ Forecast Simulator", layout="wide")
 
@@ -24,6 +25,7 @@ def load_data_and_models():
 
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
     X = qqq[features].copy()
+    X.columns = X.columns.str.strip()
     y = qqq['Close'].copy()
 
     xgb_model = xgb.XGBRegressor(n_estimators=300, max_depth=4, learning_rate=0.05, random_state=42)
@@ -57,20 +59,26 @@ future_df = pd.DataFrame({
     'GDP': 21000
 })
 
+features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
+future_X = future_df[features].copy()
+future_X.columns = future_X.columns.str.strip()
+
 if model_choice == "XGBoost":
-    forecast = xgb_model.predict(future_df[['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']])
+    forecast = xgb_model.predict(future_X)
 elif model_choice == "Linear Regression":
-    forecast = linear_model.predict(future_df[['Date_Ordinal']])
+    forecast = linear_model.predict(future_X[['Date_Ordinal']])
 else:
-    future_poly = poly.transform(future_df[['Date_Ordinal']])
+    future_poly = poly.transform(future_X[['Date_Ordinal']])
     forecast = poly_model.predict(future_poly)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=qqq['Date'], y=qqq['Close'], name="Historical QQQ", line=dict(color='blue')))
 fig.add_trace(go.Scatter(x=future_df['Date'], y=forecast, name=f"Forecast ({model_choice})", line=dict(color='orange')))
 fig.add_trace(go.Scatter(x=[qqq.index.min(), future_df['Date'].max()], y=[500, 500], name='Breakout $500', line=dict(color='red', dash='dot')))
+
 above_500 = forecast > 500
 fig.add_trace(go.Scatter(x=future_df['Date'][above_500], y=forecast[above_500], mode='markers', name='> $500', marker=dict(color='green')))
+
 fig.update_layout(title="QQQ Forecast with Macro Variables", xaxis_title="Date", yaxis_title="Price", template="plotly_dark")
 st.plotly_chart(fig, use_container_width=True)
 
