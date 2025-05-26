@@ -45,6 +45,7 @@ def load_model_and_data():
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                 '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment']
     X = qqq[features].copy()
+    X.columns = X.columns.str.strip()
     
     y = qqq['Close']
 
@@ -106,6 +107,7 @@ future_df = pd.DataFrame({
     'EPS_Growth': eps,
     'Sentiment': sent
 })
+future_df.columns = future_df.columns.str.strip()
 
 forecast = model.predict(future_df)
 forecast *= (1 + macro_bias)
