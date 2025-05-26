@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 import requests
 import json
 import io
+import matplotlib.pyplot as plt
 
 @st.cache_resource
 def load_model_and_data():
@@ -33,8 +34,11 @@ def load_model_and_data():
     qqq['Sentiment'] = 70
 
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX', '10Y_Yield', 'Sentiment']
-    X = qqq[features]
-    X.columns = X.columns.str.strip()
+    X = qqq[features].copy()
+    if isinstance(X.columns, pd.MultiIndex):
+        X.columns = [" ".join(col).strip() for col in X.columns.values]
+    else:
+        X.columns = X.columns.str.strip()
     y = qqq['Close']
 
     model_xgb = xgb.XGBRegressor(n_estimators=100)
@@ -83,7 +87,6 @@ else:
 
 compare = st.checkbox("Compare All Scenarios")
 history_mode = st.checkbox("Backtest from Past Date")
-
 threshold = st.number_input("🔔 Set Alert Threshold for QQQ", value=500.0, step=1.0)
 
 future_dates = pd.date_range(start=datetime.today(), periods=30)
@@ -153,7 +156,6 @@ if history_mode:
         st.plotly_chart(fig_hist, use_container_width=True)
 
 if st.checkbox("Show Feature Importance (XGBoost)"):
-    import matplotlib.pyplot as plt
     booster = model.named_estimators_['xgb']
     fig_imp, ax = plt.subplots()
     xgb.plot_importance(booster, ax=ax)
