@@ -16,9 +16,9 @@ import matplotlib.pyplot as plt
 @st.cache_resource
 def load_model_and_data():
     qqq = yf.download("QQQ", start="2018-01-01")
-    vix = yf.download("^VIX", start="2018-01-01")['Close']
-    treasury10 = yf.download("^TNX", start="2018-01-01")['Close']
-    treasury2 = yf.download("^IRX", start="2018-01-01")['Close']
+    vix = yf.download("^VIX", start="2018-01-01")["Close"].squeeze()
+    treasury10 = yf.download("^TNX", start="2018-01-01")["Close"].squeeze()
+    treasury2 = yf.download("^IRX", start="2018-01-01")["Close"].squeeze()
 
     qqq = qqq.dropna().copy()
     vix = vix.reindex(qqq.index, method='ffill')
