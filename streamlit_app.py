@@ -28,6 +28,9 @@ def load_data_and_models():
     X.columns = X.columns.str.strip()
     y = qqq['Close'].copy()
 
+    # Explicitly assign columns to ensure feature names match
+    X = X[features]
+
     xgb_model = xgb.XGBRegressor(n_estimators=300, max_depth=4, learning_rate=0.05, random_state=42)
     xgb_model.fit(X, y)
 
@@ -41,7 +44,9 @@ def load_data_and_models():
 
     return qqq, xgb_model, linear_model, poly_model, poly
 
-qqq, xgb_model, linear_model, poly_model, poly = load_data_and_models()
+with st.spinner("📡 Loading QQQ data and training models..."):
+    qqq, xgb_model, linear_model, poly_model, poly = load_data_and_models()
+st.success("✅ Models loaded and ready!")
 
 st.sidebar.header("Macro Inputs")
 fed_rate = st.sidebar.slider("Fed Funds Rate (%)", 0.0, 7.0, 5.25, 0.25)
@@ -62,6 +67,7 @@ future_df = pd.DataFrame({
 features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']
 future_X = future_df[features].copy()
 future_X.columns = future_X.columns.str.strip()
+future_X = future_X[features]  # Re-align columns explicitly
 
 if model_choice == "XGBoost":
     forecast = xgb_model.predict(future_X)
@@ -83,7 +89,11 @@ fig.update_layout(title="QQQ Forecast with Macro Variables", xaxis_title="Date",
 st.plotly_chart(fig, use_container_width=True)
 
 y_true = qqq['Close']
-y_pred = xgb_model.predict(qqq[['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP']])
+X_true = qqq[features].copy()
+X_true.columns = X_true.columns.str.strip()
+X_true = X_true[features]
+y_pred = xgb_model.predict(X_true)
+
 col1, col2, col3 = st.columns(3)
 col1.metric("R²", f"{r2_score(y_true, y_pred):.4f}")
 col2.metric("MAE", f"{mean_absolute_error(y_true, y_pred):.2f}")
