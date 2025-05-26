@@ -33,6 +33,11 @@ def load_model_and_data():
     qqq['10Y_Yield'] = treasury10
     qqq['Sentiment'] = 70
 
+    qqq['MA_20'] = qqq['Close'].rolling(window=20).mean()
+    qqq['MA_50'] = qqq['Close'].rolling(window=50).mean()
+    qqq['Volatility'] = qqq['Close'].rolling(window=20).std()
+    qqq = qqq.dropna()
+
     features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX', '10Y_Yield', 'Sentiment']
     X = qqq[features].copy()
     if isinstance(X.columns, pd.MultiIndex):
@@ -51,6 +56,9 @@ def load_model_and_data():
 model, features, qqq_data = load_model_and_data()
 
 st.title("📈 QQQ Forecast Simulator")
+
+horizon = st.selectbox("📆 Forecast Horizon (days)", [30, 60, 90], index=0)
+show_tech = st.checkbox("📊 Show Technical Indicators (MA 20/50, Volatility)")
 
 scenarios = {
     "Recession": dict(fed=5.5, cpi=6.5, unemp=6.0, gdp=18000, vix=50.0, yield_=2.0, sent=40),
@@ -87,9 +95,10 @@ else:
 
 compare = st.checkbox("Compare All Scenarios")
 history_mode = st.checkbox("Backtest from Past Date")
+technical_download = st.checkbox("📥 Download Technical Indicators")
 threshold = st.number_input("🔔 Set Alert Threshold for QQQ", value=500.0, step=1.0)
 
-future_dates = pd.date_range(start=datetime.today(), periods=30)
+future_dates = pd.date_range(start=datetime.today(), periods=horizon)
 date_ordinals = future_dates.map(datetime.toordinal)
 
 fig = go.Figure()
@@ -109,7 +118,6 @@ if compare:
             '10Y_Yield': s['yield_'],
             'Sentiment': s['sent']
         })
-        future_df.columns = future_df.columns.str.strip()
         forecast = model.predict(future_df)
         fig.add_trace(go.Scatter(x=future_dates, y=forecast, mode='lines', name=name))
         forecast_df[name] = forecast
@@ -124,21 +132,30 @@ else:
         '10Y_Yield': treasury_yield,
         'Sentiment': sentiment
     })
-    future_df.columns = future_df.columns.str.strip()
     forecast = model.predict(future_df)
-    st.metric("Forecasted 1-Month QQQ", f"${forecast[-1]:.2f}", delta=f"{(forecast[-1] - forecast[0]):.2f}")
+    st.metric("Forecasted QQQ", f"${forecast[-1]:.2f}", delta=f"{(forecast[-1] - forecast[0]):.2f}")
     if forecast[-1] >= threshold:
         st.warning(f"🚨 Alert: Forecasted QQQ (${forecast[-1]:.2f}) exceeds threshold of ${threshold:.2f}!")
     fig.add_trace(go.Scatter(x=future_dates, y=forecast, mode='lines+markers', name='Forecast'))
     forecast_df['Forecast'] = forecast
 
-fig.update_layout(title="QQQ Forecast (Next 30 Days)", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
+fig.update_layout(title=f"QQQ Forecast (Next {horizon} Days)", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
+
+if show_tech:
+    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['MA_20'], name="MA 20", line=dict(dash='dot')))
+    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['MA_50'], name="MA 50", line=dict(dash='dash')))
+    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['Volatility'], name="Volatility", yaxis="y2", line=dict(color='orange')))
+    fig.update_layout(yaxis2=dict(title="Volatility", overlaying='y', side='right'))
+
 st.plotly_chart(fig, use_container_width=True)
 
-csv = forecast_df
-csv['Date'] = future_dates
-csv = csv.set_index('Date')
-st.download_button("📥 Download Forecast CSV", csv.to_csv().encode(), file_name="forecast.csv")
+forecast_df['Date'] = future_dates
+forecast_df = forecast_df.set_index('Date')
+st.download_button("📥 Download Forecast CSV", forecast_df.to_csv().encode(), file_name="forecast.csv")
+
+if technical_download:
+    tech_df = qqq_data[['Close', 'MA_20', 'MA_50', 'Volatility']].dropna()
+    st.download_button("📥 Download Technical Data CSV", tech_df.to_csv().encode(), file_name="technical_indicators.csv")
 
 buf = io.BytesIO()
 fig.write_image(buf, format="png")
