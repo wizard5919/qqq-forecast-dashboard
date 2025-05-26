@@ -47,8 +47,7 @@ def load_model_and_data():
     X = qqq[features].copy()
     if isinstance(X.columns, pd.MultiIndex):
         X.columns = ["_".join(map(str, col)).strip() for col in X.columns.values]
-    else:
-        X.columns = X.columns.astype(str).str.strip()
+    
     y = qqq['Close']
 
     model_xgb = xgb.XGBRegressor(n_estimators=100)
