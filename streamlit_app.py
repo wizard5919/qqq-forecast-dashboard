@@ -30,38 +30,56 @@ if 'fed' not in st.session_state:
     st.session_state.horizon = 30
 
 def fetch_data(ticker, start_date):
-    """Fetch data for a given ticker using yfinance."""
-    try:
-        df = yf.download(ticker, start=start_date, progress=False)
-        # Handle MultiIndex columns by flattening to single level
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = ['_'.join(col).strip() for col in df.columns.values]
-        return df
-    except Exception as e:
-        st.error(f"Error fetching data for {ticker}: {e}")
-        return None
+    """Fetch data with retries and fallbacks"""
+    for i in range(3):
+        try:
+            df = yf.download(ticker, start=start_date, progress=False)
+            if not df.empty and 'Close' in df.columns:
+                return df
+            else:
+                st.warning(f"Empty data for {ticker}, attempt {i+1}/3")
+        except Exception as e:
+            st.warning(f"Error fetching {ticker}: {e}")
+        time.sleep(2)
+    
+    st.error(f"Failed to fetch {ticker} after 3 attempts. Using fallback data.")
+    dates = pd.date_range(start=start_date, end=datetime.today())
+    return pd.DataFrame({
+        'Open': np.linspace(100, 500, len(dates)),
+        'High': np.linspace(105, 505, len(dates)),
+        'Low': np.linspace(95, 495, len(dates)),
+        'Close': np.linspace(100, 500, len(dates)),
+        'Volume': np.linspace(1000000, 5000000, len(dates)),
+        'Adj Close': np.linspace(100, 500, len(dates))
+    }, index=dates)
 
 def add_technical_indicators(df):
     """
-    Add EMA (9, 20, 50, 200), VWAP, and Keltner Channels to the DataFrame.
-    Assumes df has 'Close', 'High', 'Low', 'Volume' columns from yfinance.
+    Add technical indicators with robust column handling
     """
     # Create a copy to avoid modifying the original
     df = df.copy()
     
+    # Ensure required columns exist
+    required_cols = ['Close', 'High', 'Low', 'Volume']
+    for col in required_cols:
+        if col not in df.columns:
+            st.warning(f"⚠️ Column '{col}' not found. Using default value 100.")
+            df[col] = 100.0  # Default value
+
     try:
-        # Calculate indicators
-        df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
-        df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
-        df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
-        df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
+        # Calculate EMAs
+        for span in [9, 20, 50, 200]:
+            df[f'EMA_{span}'] = df['Close'].ewm(span=span, adjust=False).mean()
         
+        # Calculate VWAP
         df['Typical_Price'] = (df['High'] + df['Low'] + df['Close']) / 3
         df['Price_x_Volume'] = df['Typical_Price'] * df['Volume']
         df['Cumulative_Price_Volume'] = df['Price_x_Volume'].cumsum()
         df['Cumulative_Volume'] = df['Volume'].cumsum()
         df['VWAP'] = df['Cumulative_Price_Volume'] / df['Cumulative_Volume']
         
+        # Calculate Keltner Channels
         df['KC_Middle'] = df['Close'].ewm(span=20, adjust=False).mean()
         tr = pd.DataFrame()
         tr['h_l'] = df['High'] - df['Low']
@@ -77,15 +95,14 @@ def add_technical_indicators(df):
         # Cleanup temporary columns
         cols_to_drop = ['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 
                        'Cumulative_Volume', 'TR', 'ATR']
-        df = df.drop([col for col in cols_to_drop if col in df.columns], axis=1)
+        for col in cols_to_drop:
+            if col in df.columns:
+                df = df.drop(col, axis=1)
+                
         return df
-    except KeyError as e:
-        st.error(f"Missing required column in data: {e}")
-        # Attempt to add missing columns with dummy data
-        for col in ['Close', 'High', 'Low', 'Volume']:
-            if col not in df.columns:
-                df[col] = 100.0
-        return add_technical_indicators(df)  # Retry with dummy data
+    except Exception as e:
+        st.error(f"Error adding technical indicators: {e}")
+        return df
 
 def train_model(X, y):
     """Train an XGBoost model."""
