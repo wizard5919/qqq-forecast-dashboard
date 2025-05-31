@@ -117,10 +117,10 @@ def load_data_and_models():
         poly_features = np.column_stack([X.values, X.values ** 2])
         model_poly = LinearRegression().fit(poly_features, y)
 
-        return qqq, model_xgb, model_linear, model_poly, X  # return all models and X if needed
+        return model_xgb, features, qqq, qqq['Close'].iloc[-1]
     except Exception as e:
         st.error(f"Error in load_data_and_models: {e}")
-        return None, None, None, None, None
+        return None, None, None, None
 
 # Load model and data
 model, features, qqq_data, latest_close = load_model_and_data()
