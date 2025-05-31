@@ -266,6 +266,7 @@ fig.add_trace(go.Scatter(x=future_dates, y=forecast, name="Forecast", line=dict(
 fig.add_trace(go.Scatter(x=future_dates, y=forecast_upper, name="Upper Bound", line=dict(color='lightblue'), showlegend=False))
 fig.add_trace(go.Scatter(x=future_dates, y=forecast_lower, name="Lower Bound", fill='tonexty', line=dict(color='lightblue'), fillcolor='rgba(173, 216, 230, 0.3)', showlegend=False))
 
+
 if show_tech:
     tech_cols = ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
     colors = ['purple', 'green', 'red', 'blue', 'orange', 'gray', 'gray', 'gray', 'orange']
@@ -280,14 +281,14 @@ if show_tech:
                     name=col, 
                     yaxis="y2", 
                     line=dict(color=color, dash=style)
-                )
+                ))  # Added extra parenthesis here
             else:
                 fig.add_trace(go.Scatter(
                     x=qqq_data.index, 
                     y=qqq_data[col], 
                     name=col, 
                     line=dict(color=color, dash=style)
-                )
+                ))  # Added extra parenthesis here
     
     if 'Volatility' in qqq_data.columns:
         fig.update_layout(yaxis2=dict(title="Volatility", overlaying='y', side='right'))
