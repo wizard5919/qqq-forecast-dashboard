@@ -65,31 +65,8 @@ def add_technical_indicators(df):
     df = df.drop(['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 'Cumulative_Volume', 'TR', 'ATR'], axis=1, errors='ignore')
     return df
 
-@st.cache_data
-def fetch_data(ticker, start_date):
-    try:
-        data = yf.download(ticker, start=start_date, progress=False)
-        if data.empty:
-            raise ValueError(f"Data download for {ticker} returned empty DataFrame")
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = [col[0] for col in data.columns]
-        return data[['Close']].dropna().copy()
-    except Exception as e:
-        st.error(f"Error fetching data for {ticker}: {e}")
-        return None
-
 @st.cache_resource
-def train_model(X, y):
-    try:
-        model_xgb = xgb.XGBRegressor(n_estimators=100, random_state=42)
-        model_xgb.fit(X, y)
-        return model_xgb
-    except Exception as e:
-        st.error(f"Error training model: {e}")
-        return None
-
-@st.cache_resource
-def load_model_and_data():
+def load_data_and_models():
     try:
         start_date = "2018-01-01"
         qqq = yf.download("QQQ", start=start_date, progress=False)
@@ -98,7 +75,7 @@ def load_model_and_data():
         treasury2 = fetch_data("^IRX", start_date)
 
         if any(df is None for df in [qqq, vix, treasury10, treasury2]):
-            return None, None, None, None
+            return None, None, None, None, None
 
         vix = vix['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
         treasury10 = treasury10['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
@@ -123,25 +100,27 @@ def load_model_and_data():
         features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                     '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
                     'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
+        
         X = qqq[features].copy()
         y = qqq['Close']
         X = X.dropna()
         y = y.loc[X.index]
 
-        # Fix MultiIndex issue with column names
+        # ✅ Fix MultiIndex issue with column names
         if isinstance(X.columns, pd.MultiIndex):
-            X.columns = ['_'.join(map(str, col)).strip() if isinstance(col, tuple) else str(col).strip() for col in X.columns]
+            X.columns = ['_'.join(map(str, col)).strip() for col in X.columns.to_flat_index()]
         else:
             X.columns = X.columns.astype(str).str.strip()
 
-        model = train_model(X, y)
-        if model is None:
-            return None, None, None, None
+        model_xgb = train_model(X, y)
+        model_linear = LinearRegression().fit(X, y)
+        poly_features = np.column_stack([X.values, X.values ** 2])
+        model_poly = LinearRegression().fit(poly_features, y)
 
-        return model, features, qqq, qqq['Close'].iloc[-1]
+        return qqq, model_xgb, model_linear, model_poly, X  # return all models and X if needed
     except Exception as e:
-        st.error(f"Error in load_model_and_data: {e}")
-        return None, None, None, None
+        st.error(f"Error in load_data_and_models: {e}")
+        return None, None, None, None, None
 
 # Load model and data
 model, features, qqq_data, latest_close = load_model_and_data()
