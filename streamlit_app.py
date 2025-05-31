@@ -1,8 +1,7 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, time
+from datetime import datetime
 import yfinance as yf
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
@@ -13,9 +12,12 @@ import time
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import requests
+import uuid
+import traceback
 
 st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide")
 
+# Initialize session state
 if 'fed' not in st.session_state:
     st.session_state.fed = 5.25
     st.session_state.cpi = 3.5
@@ -29,6 +31,7 @@ if 'fed' not in st.session_state:
     st.session_state.macro_bias = 0.0
     st.session_state.horizon = 30
 
+# Global variables
 qqq_data = None
 xgb_model = None
 linear_model = None
@@ -36,13 +39,6 @@ poly_model = None
 poly = None
 available_features = None
 latest_close = 400.0
-
-
-# Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
-
-# Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
-
-# Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
 
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
@@ -56,10 +52,7 @@ def fetch_data(ticker, start_date):
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = [col[0] for col in df.columns]
-                else:
-                    df.columns = [str(col).strip().title() for col in df.columns]
-
-                df.columns = [str(col).strip().title() for col in df.columns]  # Normalize again after flattening
+                df.columns = [str(col).strip().title() for col in df.columns]
                 missing_required = [col for col in expected_columns if col not in df.columns]
                 if not missing_required:
                     if 'Adj Close' not in df.columns:
@@ -87,44 +80,17 @@ def fetch_data(ticker, start_date):
         'Volume': np.linspace(1000000, 5000000, len(dates)),
         'Adj Close': np.linspace(100, 500, len(dates))
     }, index=dates)
-    df.columns = [str(col).strip().title() for col in df.columns]  # Normalize fallback column names
+    df.columns = [str(col).strip().title() for col in df.columns]
     return df
 
-# Be sure to apply the same column flattening logic to all data pulls (e.g., VIX, TNX, IRX)
-
-# Also in load_data_and_models, replace any hard-coded title-casing of columns with:
-# qqq.columns = [str(col).strip().title() for col in qqq.columns]
-# vix.columns = [str(col).strip().title() for col in vix.columns]
-# treasury10.columns = [str(col).strip().title() for col in treasury10.columns]
-# treasury2.columns = [str(col).strip().title() for col in treasury2.columns]
-
-# --- Load Data Normalization ---
 def normalize_columns(df):
+    """Normalize column names to title case"""
     if df is not None:
         df.columns = [str(col).strip().title() for col in df.columns]
     return df
 
-# Call these inside load_data_and_models(), right after each fetch_data call
-def load_data_and_models():
-    start_date = "2018-01-01"
-
-    qqq = normalize_columns(fetch_data("QQQ", start_date))
-    vix = normalize_columns(fetch_data("^VIX", start_date))
-    treasury10 = normalize_columns(fetch_data("^TNX", start_date))
-    treasury2 = normalize_columns(fetch_data("^IRX", start_date))
-
-    return qqq, vix, treasury10, treasury2
-# Replace all other calls to fetch_data(..., start_date) outside this function
-# Only use the unified call: load_data_and_models()
-
-# Example:
-# qqq, vix, treasury10, treasury2 = load_data_and_models()
-
-# vix = normalize_columns(fetch_data("^VIX", start_date))
-# etc.
-# Do NOT call outside of function scope
-
 def safe_feature_subset(df, feature_list):
+    """Safely select features from DataFrame"""
     if df is None or feature_list is None:
         st.error("❌ safe_feature_subset: Input DataFrame or feature list is None.")
         return pd.DataFrame()
@@ -136,21 +102,13 @@ def safe_feature_subset(df, feature_list):
     missing = [f for f in feature_list if f not in df.columns]
     if missing:
         st.warning(f"Missing features: {missing}")
+    if not existing:
+        st.error("❌ No valid features available in DataFrame.")
+        return pd.DataFrame()
     return df[existing].copy()
 
-# Example usage (applied fix):
-X = safe_feature_subset(qqq_data, available_features)
-
-# Apply this also to:
-#future_df = safe_feature_subset(future_df, available_features)
-#comp_df = safe_feature_subset(comp_df, available_features)
-#back_df = safe_feature_subset(back_df, available_features)
-
-# This ensures robust feature alignment across all DataFrames
-
-
-
 def add_technical_indicators(df):
+    """Add technical indicators to DataFrame"""
     df = df.copy()
     required_cols = ['Close', 'High', 'Low', 'Volume']
     for col in required_cols:
@@ -160,36 +118,34 @@ def add_technical_indicators(df):
 
     try:
         for span in [9, 20, 50, 200]:
-            df[f'EMA_{span}'] = df['Close'].ewm(span=span, adjust=False).mean()
+            df[f'Ema_{span}'] = df['Close'].ewm(span=span, adjust=False).mean()
         typical_price = (df['High'] + df['Low'] + df['Close']) / 3
         df['Typical_Price'] = typical_price
-        df['Price_x_Volume'] = typical_price * df['Volume']
-        df['Cumulative_Price_Volume'] = df['Price_x_Volume'].cumsum()
+        df['Price_X_Volume'] = typical_price * df['Volume']
+        df['Cumulative_Price_Volume'] = df['Price_X_Volume'].cumsum()
         df['Cumulative_Volume'] = df['Volume'].cumsum()
-        df['VWAP'] = df['Cumulative_Price_Volume'] / df['Cumulative_Volume']
-        df['KC_Middle'] = df['Close'].ewm(span=20, adjust=False).mean()
+        df['Vwap'] = df['Cumulative_Price_Volume'] / df['Cumulative_Volume']
+        df['Kc_Middle'] = df['Close'].ewm(span=20, adjust=False).mean()
         tr = pd.DataFrame()
         tr['h_l'] = df['High'] - df['Low']
         tr['h_pc'] = abs(df['High'] - df['Close'].shift())
         tr['l_pc'] = abs(df['Low'] - df['Close'].shift())
-        df['TR'] = tr.max(axis=1)
-        df['ATR'] = df['TR'].ewm(span=20, adjust=False).mean()
+        df['Tr'] = tr.max(axis=1)
+        df['Atr'] = df['Tr'].ewm(span=20, adjust=False).mean()
         k_mult = 2
-        df['KC_Upper'] = df['KC_Middle'] + k_mult * df['ATR']
-        df['KC_Lower'] = df['KC_Middle'] - k_mult * df['ATR']
-        cols_to_drop = ['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 
-                       'Cumulative_Volume', 'TR', 'ATR']
-        for col in cols_to_drop:
-            if col in df.columns:
-                df = df.drop(col, axis=1)
+        df['Kc_Upper'] = df['Kc_Middle'] + k_mult * df['Atr']
+        df['Kc_Lower'] = df['Kc_Middle'] - k_mult * df['Atr']
+        cols_to_drop = ['Typical_Price', 'Price_X_Volume', 'Cumulative_Price_Volume', 
+                        'Cumulative_Volume', 'Tr', 'Atr']
+        df = df.drop(columns=[col for col in cols_to_drop if col in df.columns])
         return df
     except Exception as e:
         st.error(f"Error adding technical indicators: {e}")
-        import traceback
         st.error(traceback.format_exc())
         return df
 
 def train_model(X, y):
+    """Train XGBoost model"""
     try:
         model_xgb = xgb.XGBRegressor(
             n_estimators=100,
@@ -205,14 +161,13 @@ def train_model(X, y):
 
 @st.cache_resource
 def load_data_and_models():
+    """Load data and train models"""
     try:
         st.info("📡 Loading data and models... This may take a minute")
         start_date = "2018-01-01"
         
+        # Fetch and normalize data
         qqq = fetch_data("QQQ", start_date)
-        st.write(f"QQQ Data: Shape={qqq.shape}, Columns={list(qqq.columns)}")
-        qqq.columns = [col.title() for col in qqq.columns]
-        
         if qqq is None or qqq.empty or 'Close' not in qqq.columns:
             st.error("❌ Failed to load valid QQQ data. Using fallback data.")
             dates = pd.date_range(start=start_date, end=datetime.today())
@@ -224,12 +179,13 @@ def load_data_and_models():
                 'Volume': np.linspace(1000000, 5000000, len(dates)),
                 'Adj Close': np.linspace(100, 500, len(dates))
             }, index=dates)
-            qqq.columns = [col.title() for col in qqq.columns]
+        qqq = normalize_columns(qqq)
+        st.write(f"QQQ Data: Shape={qqq.shape}, Columns={list(qqq.columns)}")
         
         def get_data_with_fallback(ticker, fallback_value, name):
             data = fetch_data(ticker, start_date)
+            data = normalize_columns(data)
             st.write(f"{name} Data: Shape={data.shape}, Columns={list(data.columns)}")
-            data.columns = [col.title() for col in data.columns]
             if data is None or data.empty or 'Close' not in data.columns:
                 st.warning(f"⚠️ Using fallback value {fallback_value} for {name}")
                 return pd.Series(fallback_value, index=qqq.index, name='Close')
@@ -239,50 +195,56 @@ def load_data_and_models():
         treasury10 = get_data_with_fallback("^TNX", 4.0, "10Y Yield")
         treasury2 = get_data_with_fallback("^IRX", 3.5, "2Y Yield")
 
+        # Add technical indicators
         qqq = add_technical_indicators(qqq)
         
+        # Add additional features
         qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)
-        qqq['FedFunds'] = 5.25
+        qqq['Fedfunds'] = 5.25
         qqq['Unemployment'] = 3.9
-        qqq['CPI'] = 3.5
-        qqq['GDP'] = 21000
-        qqq['VIX'] = vix
+        qqq['Cpi'] = 3.5
+        qqq['Gdp'] = 21000
+        qqq['Vix'] = vix
         qqq['10Y_Yield'] = treasury10
         qqq['2Y_Yield'] = treasury2
-        qqq['Yield_Spread'] = (treasury10 - treasury2)
-        qqq['EPS_Growth'] = np.linspace(5, 15, len(qqq))
+        qqq['Yield_Spread'] = treasury10 - treasury2
+        qqq['Eps_Growth'] = np.linspace(5, 15, len(qqq))
         qqq['Sentiment'] = 70
-        
-        if 'EMA_20' in qqq.columns:
-            qqq['MA_20'] = qqq['EMA_20']
-        else:
-            qqq['MA_20'] = qqq['Close'].rolling(window=20).mean()
-            
-        if 'EMA_50' in qqq.columns:
-            qqq['MA_50'] = qqq['EMA_50']
-        else:
-            qqq['MA_50'] = qqq['Close'].rolling(window=50).mean()
-            
+        qqq['Ma_20'] = qqq['Close'].rolling(window=20).mean() if 'Ema_20' not in qqq.columns else qqq['Ema_20']
+        qqq['Ma_50'] = qqq['Close'].rolling(window=50).mean() if 'Ema_50' not in qqq.columns else qqq['Ema_50']
         qqq['Volatility'] = qqq['Close'].rolling(window=20).std()
 
-        essential_features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
-                              '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment']
+        # Define essential features
+        essential_features = ['Date_Ordinal', 'Fedfunds', 'Unemployment', 'Cpi', 'Gdp', 'Vix',
+                              '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'Eps_Growth', 'Sentiment']
         
+        # Add technical indicators only if they exist
         available_features = essential_features.copy()
-        for col in ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']:
-            if col in qqq.columns:
-                available_features.append(col)
+        technical_features = ['Ema_9', 'Ema_20', 'Ema_50', 'Ema_200', 'Vwap', 'Kc_Upper', 'Kc_Lower', 'Kc_Middle']
+        available_features.extend([col for col in technical_features if col in qqq.columns])
+        
+        # Log for debugging
+        st.write(f"Available features: {available_features}")
+        st.write(f"QQQ columns: {list(qqq.columns)}")
 
+        # Ensure all features exist
         missing_features = [col for col in available_features if col not in qqq.columns]
         if missing_features:
             st.warning(f"Missing features {missing_features} in qqq DataFrame. Removing from available_features.")
             available_features = [col for col in available_features if col in qqq.columns]
+
+        # Select features
+        X = safe_feature_subset(qqq, available_features)
+        if X.empty:
+            st.error("❌ No valid features selected for training. Using fallback features.")
+            X = qqq[['Close']].copy()
+            available_features = ['Close']
         
-        X = qqq[available_features].copy()
-        y = qqq['Close']
+        y = qqq['Close'].loc[X.index]
         X = X.dropna()
         y = y.loc[X.index]
 
+        # Train models
         model_xgb = train_model(X, y)
         if model_xgb is None:
             st.warning("XGBoost model training failed. Using linear models only.")
@@ -291,22 +253,22 @@ def load_data_and_models():
 
         model_linear = LinearRegression().fit(X, y)
         
+        poly_transformer = None
+        model_poly = model_linear
         if len(available_features) < 20:
             poly_transformer = PolynomialFeatures(degree=2)
             poly_features = poly_transformer.fit_transform(X)
             model_poly = LinearRegression().fit(poly_features, y)
         else:
             st.warning("Too many features for polynomial model. Using linear model instead.")
-            poly_transformer = None
-            model_poly = model_linear
 
-        return qqq, model_xgb, linear_model, model_poly, poly_transformer, available_features
+        return qqq, model_xgb, model_linear, model_poly, poly_transformer, available_features
     except Exception as e:
         st.error(f"❌ Critical error in load_data_and_models: {str(e)}")
-        import traceback
         st.error(traceback.format_exc())
         return None, None, None, None, None, None
 
+# Load data and models
 with st.spinner("Loading data and training models. This may take up to 30 seconds..."):
     try:
         result = load_data_and_models()
@@ -315,6 +277,7 @@ with st.spinner("Loading data and training models. This may take up to 30 second
         st.error(f"Error loading data and models: {e}")
         result = None
 
+# Handle failed data loading
 if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, available_features]):
     st.error("""
     ❌ Failed to load QQQ data. Possible reasons:
@@ -334,40 +297,37 @@ if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, 
         'Adj Close': np.linspace(100, 500, len(dates))
     }, index=dates)
     
-    qqq_data['EMA_9'] = qqq_data['Close']
-    qqq_data['EMA_20'] = qqq_data['Close']
-    qqq_data['EMA_50'] = qqq_data['Close']
-    qqq_data['EMA_200'] = qqq_data['Close']
-    qqq_data['VWAP'] = qqq_data['Close']
-    qqq_data['KC_Upper'] = qqq_data['Close'] * 1.05
-    qqq_data['KC_Lower'] = qqq_data['Close'] * 0.95
-    qqq_data['KC_Middle'] = qqq_data['Close']
+    qqq_data = add_technical_indicators(qqq_data)
     qqq_data['Date_Ordinal'] = qqq_data.index.map(datetime.toordinal)
-    qqq_data['FedFunds'] = 5.25
+    qqq_data['Fedfunds'] = 5.25
     qqq_data['Unemployment'] = 3.9
-    qqq_data['CPI'] = 3.5
-    qqq_data['GDP'] = 21000
-    qqq_data['VIX'] = 20.0
+    qqq_data['Cpi'] = 3.5
+    qqq_data['Gdp'] = 21000
+    qqq_data['Vix'] = 20.0
     qqq_data['10Y_Yield'] = 4.0
     qqq_data['2Y_Yield'] = 3.5
     qqq_data['Yield_Spread'] = qqq_data['10Y_Yield'] - qqq_data['2Y_Yield']
-    qqq_data['EPS_Growth'] = np.linspace(5, 15, len(qqq_data))
+    qqq_data['Eps_Growth'] = np.linspace(5, 15, len(qqq_data))
     qqq_data['Sentiment'] = 70
     qqq_data['Volatility'] = qqq_data['Close'].rolling(window=20).std().fillna(0)
+    qqq_data['Ma_20'] = qqq_data['Close'].rolling(window=20).mean()
+    qqq_data['Ma_50'] = qqq_data['Close'].rolling(window=50).mean()
     
-    qqq_data.columns = [col.title() for col in qqq_data.columns]
+    qqq_data = normalize_columns(qqq_data)
     
-    available_features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
-                         '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
-                         'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
+    available_features = ['Date_Ordinal', 'Fedfunds', 'Unemployment', 'Cpi', 'Gdp', 'Vix',
+                         '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'Eps_Growth', 'Sentiment',
+                         'Ema_9', 'Ema_20', 'Ema_50', 'Ema_200', 'Vwap', 'Kc_Upper', 'Kc_Lower', 'Kc_Middle']
+    available_features = [col for col in available_features if col in qqq_data.columns]
     
-    X = qqq_data[available_features].copy()
+    X = safe_feature_subset(qqq_data, available_features)
     y = qqq_data['Close']
     xgb_model = LinearRegression().fit(X, y)
     linear_model = LinearRegression().fit(X, y)
     poly_model = LinearRegression().fit(X, y)
     poly = None
 
+# UI
 st.title("📈 QQQ Forecast Simulator")
 
 try:
@@ -425,6 +385,7 @@ else:
 future_dates = pd.date_range(start=datetime.today(), periods=horizon, freq='D')
 date_ordinals = [d.toordinal() for d in future_dates]
 
+# Forecast
 forecast = None
 forecast_upper = None
 forecast_lower = None
@@ -432,26 +393,25 @@ forecast_lower = None
 try:
     future_df = pd.DataFrame({
         'Date_Ordinal': date_ordinals,
-        'FedFunds': fed,
+        'Fedfunds': fed,
         'Unemployment': unemp,
-        'CPI': cpi,
-        'GDP': gdp,
-        'VIX': vix,
+        'Cpi': cpi,
+        'Gdp': gdp,
+        'Vix': vix,
         '10Y_Yield': yield_10,
         '2Y_Yield': yield_2,
         'Yield_Spread': yield_10 - yield_2,
-        'EPS_Growth': eps,
+        'Eps_Growth': eps,
         'Sentiment': sent
     }, index=future_dates)
     
-    for col in ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']:
-        if col in available_features:
-            if col in qqq_data.columns:
-                future_df[col] = qqq_data[col].iloc[-1]
-            else:
-                future_df[col] = latest_close
+    for col in ['Ema_9', 'Ema_20', 'Ema_50', 'Ema_200', 'Vwap', 'Kc_Upper', 'Kc_Lower', 'Kc_Middle']:
+        if col in available_features and col in qqq_data.columns:
+            future_df[col] = qqq_data[col].iloc[-1]
+        elif col in available_features:
+            future_df[col] = latest_close
 
-    future_df = future_df[available_features]
+    future_df = safe_feature_subset(future_df, available_features)
     
     forecast = xgb_model.predict(future_df)
     if poly is not None:
@@ -473,7 +433,6 @@ try:
     forecast_lower = forecast - confidence_std
 except Exception as e:
     st.error(f"Error making predictions: {e}")
-    import traceback
     st.error(traceback.format_exc())
     st.stop()
 
@@ -481,6 +440,7 @@ if forecast is None or forecast_upper is None or forecast_lower is None:
     st.error("Forecasting failed. Please try again.")
     st.stop()
 
+# Plot main forecast
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['Close'], name="Historical QQQ", line=dict(color='black')))
 fig.add_trace(go.Scatter(x=future_dates, y=forecast, name="Forecast", line=dict(color='blue')))
@@ -488,7 +448,7 @@ fig.add_trace(go.Scatter(x=future_dates, y=forecast_upper, name="Upper Bound", l
 fig.add_trace(go.Scatter(x=future_dates, y=forecast_lower, name="Lower Bound", fill='tonexty', line=dict(color='lightblue'), fillcolor='rgba(173, 216, 230, 0.3)', showlegend=False))
 
 if show_tech:
-    tech_cols = ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
+    tech_cols = ['Ema_9', 'Ema_20', 'Ema_50', 'Ema_200', 'Vwap', 'Kc_Upper', 'Kc_Lower', 'Kc_Middle', 'Volatility']
     colors = ['purple', 'green', 'red', 'blue', 'orange', 'gray', 'gray', 'gray', 'orange']
     styles = ['dot', 'dot', 'dash', 'dash', 'solid', 'solid', 'solid', 'solid', 'solid']
     
@@ -516,12 +476,14 @@ if show_tech:
 fig.update_layout(title="QQQ Price Forecast", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
 st.plotly_chart(fig, use_container_width=True)
 
+# CPI Sensitivity Analysis
 st.subheader("📈 CPI Sensitivity Analysis")
 cpi_range = np.linspace(cpi - 1, cpi + 1, 5)
 sens_fig = go.Figure()
 for val in cpi_range:
     temp_df = future_df.copy()
-    temp_df['CPI'] = val
+    temp_df['Cpi'] = val
+    temp_df = safe_feature_subset(temp_df, available_features)
     
     try:
         temp_pred = xgb_model.predict(temp_df)
@@ -543,6 +505,7 @@ for val in cpi_range:
 sens_fig.update_layout(title="QQQ Forecast Sensitivity to CPI", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
 st.plotly_chart(sens_fig, use_container_width=True)
 
+# Multi-Scenario Forecast Comparison
 st.subheader("📊 Multi-Scenario Forecast Comparison")
 compare = st.checkbox("Compare Scenarios")
 if compare:
@@ -550,26 +513,25 @@ if compare:
     for name, s in scenarios.items():
         comp_df = pd.DataFrame({
             'Date_Ordinal': date_ordinals,
-            'FedFunds': s['fed'],
+            'Fedfunds': s['fed'],
             'Unemployment': s['unemp'],
-            'CPI': s['cpi'],
-            'GDP': s['gdp'],
-            'VIX': s['vix'],
+            'Cpi': s['cpi'],
+            'Gdp': s['gdp'],
+            'Vix': s['vix'],
             '10Y_Yield': s['yield_10'],
             '2Y_Yield': s['yield_2'],
             'Yield_Spread': s['yield_10'] - s['yield_2'],
-            'EPS_Growth': s['eps'],
+            'Eps_Growth': s['eps'],
             'Sentiment': s['sent']
         }, index=future_dates)
         
-        for col in ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']:
-            if col in available_features:
-                if col in qqq_data.columns:
-                    comp_df[col] = qqq_data[col].iloc[-1]
-                else:
-                    comp_df[col] = latest_close
+        for col in ['Ema_9', 'Ema_20', 'Ema_50', 'Ema_200', 'Vwap', 'Kc_Upper', 'Kc_Lower', 'Kc_Middle']:
+            if col in available_features and col in qqq_data.columns:
+                comp_df[col] = qqq_data[col].iloc[-1]
+            elif col in available_features:
+                comp_df[col] = latest_close
         
-        comp_df = comp_df[available_features]
+        comp_df = safe_feature_subset(comp_df, available_features)
         
         try:
             yhat = xgb_model.predict(comp_df)
@@ -590,6 +552,7 @@ if compare:
     comp_fig.update_layout(title="Scenario Forecast Comparison", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
     st.plotly_chart(comp_fig, use_container_width=True)
 
+# Backtest Model Accuracy
 st.subheader("🔁 Backtest Model Accuracy")
 backtest_mode = st.checkbox("Enable Backtest")
 if backtest_mode:
@@ -597,8 +560,7 @@ if backtest_mode:
     back_df = qqq_data.loc[qqq_data.index >= pd.to_datetime(backtest_date)].copy()
     if not back_df.empty:
         try:
-            backtest_features = [col for col in available_features if col in back_df.columns]
-            back_df = back_df[backtest_features]
+            back_df = safe_feature_subset(back_df, available_features)
             
             back_df['Prediction'] = xgb_model.predict(back_df)
             if poly is not None:
@@ -607,11 +569,11 @@ if backtest_mode:
                 back_df['Prediction_Poly'] = linear_model.predict(back_df)
                 
             back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
-            mae = mean_absolute_error(back_df['Close'], back_df['Prediction'])
-            rmse = np.sqrt(mean_squared_error(back_df['Close'], back_df['Prediction']))
+            mae = mean_absolute_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction'])
+            rmse = np.sqrt(mean_squared_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction']))
             st.write(f"**Backtest Metrics:** MAE: {mae:.2f}, RMSE: {rmse:.2f}")
             fig_bt = go.Figure()
-            fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Close'], name="Actual", line=dict(color='black')))
+            fig_bt.add_trace(go.Scatter(x=back_df.index, y=qqq_data.loc[back_df.index, 'Close'], name="Actual", line=dict(color='black')))
             fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Prediction'], name="Predicted", line=dict(color='blue')))
             fig_bt.update_layout(title="Backtest: QQQ Actual vs Predicted", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
             st.plotly_chart(fig_bt, use_container_width=True)
@@ -620,6 +582,7 @@ if backtest_mode:
     else:
         st.warning("No data available for the selected backtest period.")
 
+# Feature Importance
 st.subheader("📌 Feature Importance (XGBoost)")
 if st.checkbox("Show Feature Importance"):
     try:
@@ -630,6 +593,7 @@ if st.checkbox("Show Feature Importance"):
     except Exception as e:
         st.warning(f"Error displaying feature importance: {e}")
 
+# Download Forecast Data
 st.subheader("📥 Download Forecast Data")
 forecast_df = future_df.copy()
 forecast_df['Forecast'] = forecast
@@ -637,13 +601,15 @@ forecast_df['Date'] = future_dates
 forecast_df.set_index('Date', inplace=True)
 st.download_button("Download Forecast CSV", forecast_df.to_csv().encode(), file_name="qqq_forecast.csv")
 
+# Download Technical Indicators
 if show_tech:
-    tech_cols = ['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
+    tech_cols = ['Close', 'Ema_9', 'Ema_20', 'Ema_50', 'Ema_200', 'Vwap', 'Kc_Upper', 'Kc_Lower', 'Kc_Middle', 'Volatility']
     tech_cols = [col for col in tech_cols if col in qqq_data.columns]
     if tech_cols:
         tech_df = qqq_data[tech_cols].dropna()
         st.download_button("Download Technical Indicators CSV", tech_df.to_csv().encode(), file_name="technical_indicators.csv")
 
+# Download Forecast Chart
 buf = io.BytesIO()
 try:
     fig.write_image(buf, format="png")
