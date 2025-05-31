@@ -409,12 +409,15 @@ try:
     # Reorder columns to match training data
     future_df = future_df[available_features]
     
-    # FIX: Rename columns to match model's expected feature names
+    # FIX 1: Handle trailing spaces in feature names
     try:
         model_feature_names = xgb_model.get_booster().feature_names
-        future_df.columns = model_feature_names
+        # Clean names by stripping whitespace
+        model_feature_names_clean = [name.strip() for name in model_feature_names]
+        future_df.columns = [col.strip() for col in future_df.columns]
+        future_df = future_df[model_feature_names_clean]
     except Exception as e:
-        st.warning(f"⚠️ Feature renaming warning: {e}. Using original names.")
+        st.warning(f"⚠️ Feature alignment warning: {e}")
     
     # Make predictions
     # Use XGBoost for main forecast
@@ -431,6 +434,9 @@ try:
         forecast_linear = linear_model.predict(future_df)
         forecast = (forecast + forecast_linear) / 2
         
+    # FIX 2: Ensure forecast is 1D array
+    forecast = forecast.ravel()
+        
     forecast *= (1 + macro_bias)
     if use_live_price:
         shift = latest_close - forecast[0]
@@ -443,11 +449,6 @@ except Exception as e:
     st.error(f"Error making predictions: {e}")
     import traceback
     st.error(traceback.format_exc())
-    st.stop()
-
-# Only proceed if we have a valid forecast
-if forecast is None or forecast_upper is None or forecast_lower is None:
-    st.error("Forecasting failed. Please try again.")
     st.stop()
 
 # Main forecast plot
@@ -492,7 +493,14 @@ cpi_range = np.linspace(cpi - 1, cpi + 1, 5)
 sens_fig = go.Figure()
 for val in cpi_range:
     temp_df = future_df.copy()
-    temp_df['CPI'] = val
+    
+    # FIX 3: Handle CPI column name consistently
+    cpi_col = 'CPI'
+    if 'CPI ' in temp_df.columns:
+        cpi_col = 'CPI '  # Handle trailing space
+        
+    temp_df[cpi_col] = val
+    
     try:
         temp_pred = xgb_model.predict(temp_df)
         if poly is not None:
@@ -502,6 +510,9 @@ for val in cpi_range:
         else:
             temp_pred_linear = linear_model.predict(temp_df)
             temp_pred = (temp_pred + temp_pred_linear) / 2
+            
+        # Ensure 1D array
+        temp_pred = temp_pred.ravel()
             
         temp_pred *= (1 + macro_bias)
         if use_live_price:
@@ -621,11 +632,15 @@ if st.checkbox("Show Feature Importance"):
 # Download Forecast Data
 st.subheader("📥 Download Forecast Data")
 forecast_df = future_df.copy()
-forecast_df['Forecast'] = forecast
+
+# FIX 4: Handle column names consistently
+forecast_df.columns = [col.strip() for col in forecast_df.columns]
+
+# FIX 5: Ensure forecast is properly shaped
+forecast_df['Forecast'] = forecast.ravel()
 forecast_df['Date'] = future_dates
 forecast_df.set_index('Date', inplace=True)
 st.download_button("Download Forecast CSV", forecast_df.to_csv().encode(), file_name="qqq_forecast.csv")
-
 # Download Technical Indicators
 if show_tech:
     tech_cols = ['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
