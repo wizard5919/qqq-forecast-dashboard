@@ -42,18 +42,16 @@ def fetch_data(ticker, start_date):
     max_retries = 5
     retry_delay = 5
     expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-    optional_columns = ['Adj Close']
-    
+
     for i in range(max_retries):
         try:
             df = yf.download(ticker, start=start_date, progress=False, timeout=10)
-            st.write(f"Attempt {i+1}/{max_retries} for {ticker}: Shape={df.shape}, Columns={list(df.columns)}")
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = [col[0] for col in df.columns]
                 else:
-                    df.columns = [str(col).strip() for col in df.columns]
-                df.columns = [col.title() for col in df.columns]
+                    df.columns = [str(col).strip().title() for col in df.columns]
+                
                 missing_required = [col for col in expected_columns if col not in df.columns]
                 if not missing_required:
                     if 'Adj Close' not in df.columns:
@@ -71,12 +69,6 @@ def fetch_data(ticker, start_date):
             st.warning(f"Unexpected error fetching {ticker}: {e}, attempt {i+1}/{max_retries}")
         time.sleep(retry_delay)
 
-    try:
-        st.warning(f"Attempting alternative data source for {ticker}")
-        st.error(f"No alternative data source implemented for {ticker}. Falling back to synthetic data.")
-    except Exception as e:
-        st.error(f"Failed to fetch from alternative source for {ticker}: {e}")
-
     st.error(f"Failed to fetch {ticker} after {max_retries} attempts. Using synthetic data.")
     dates = pd.date_range(start=start_date, end=datetime.today())
     df = pd.DataFrame({
@@ -89,6 +81,7 @@ def fetch_data(ticker, start_date):
     }, index=dates)
     df.columns = [col.title() for col in df.columns]
     return df
+
 
 def add_technical_indicators(df):
     df = df.copy()
