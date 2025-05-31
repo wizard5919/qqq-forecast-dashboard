@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,10 +13,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import requests
 
-# Set page configuration
 st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide")
 
-# Initialize session state
 if 'fed' not in st.session_state:
     st.session_state.fed = 5.25
     st.session_state.cpi = 3.5
@@ -31,35 +28,40 @@ if 'fed' not in st.session_state:
     st.session_state.macro_bias = 0.0
     st.session_state.horizon = 30
 
-# Initialize all variables with default values
 qqq_data = None
 xgb_model = None
 linear_model = None
 poly_model = None
 poly = None
 available_features = None
-latest_close = 400.0  # Default value
+latest_close = 400.0
 
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     max_retries = 5
     retry_delay = 5
-    expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'Adj Close']
+    expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    optional_columns = ['Adj Close']
     
     for i in range(max_retries):
         try:
             df = yf.download(ticker, start=start_date, progress=False, timeout=10)
             st.write(f"Attempt {i+1}/{max_retries} for {ticker}: Shape={df.shape}, Columns={list(df.columns)}")
             if not df.empty:
-                df.columns = [str(col).strip().title() for col in df.columns]
                 if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = ['_'.join(map(str, col)).strip().title() for col in df.columns]
-                missing_cols = [col for col in expected_columns if col not in df.columns]
-                if not missing_cols:
+                    df.columns = [col[0] for col in df.columns]
+                else:
+                    df.columns = [str(col).strip() for col in df.columns]
+                df.columns = [col.title() for col in df.columns]
+                missing_required = [col for col in expected_columns if col not in df.columns]
+                if not missing_required:
+                    if 'Adj Close' not in df.columns:
+                        df['Adj Close'] = df['Close']
+                        st.write(f"Added synthetic Adj Close for {ticker}")
                     st.info(f"Successfully fetched data for {ticker}")
                     return df
                 else:
-                    st.warning(f"Missing columns {missing_cols} for {ticker}, attempt {i+1}/{max_retries}")
+                    st.warning(f"Missing required columns {missing_required} for {ticker}, attempt {i+1}/{max_retries}")
             else:
                 st.warning(f"Empty data for {ticker}, attempt {i+1}/{max_retries}")
         except requests.exceptions.RequestException as e:
@@ -84,7 +86,7 @@ def fetch_data(ticker, start_date):
         'Volume': np.linspace(1000000, 5000000, len(dates)),
         'Adj Close': np.linspace(100, 500, len(dates))
     }, index=dates)
-    df.columns = [str(col).strip().title() for col in df.columns]
+    df.columns = [col.title() for col in df.columns]
     return df
 
 def add_technical_indicators(df):
@@ -148,10 +150,7 @@ def load_data_and_models():
         
         qqq = fetch_data("QQQ", start_date)
         st.write(f"QQQ Data: Shape={qqq.shape}, Columns={list(qqq.columns)}")
-        if isinstance(qqq.columns, pd.MultiIndex):
-            qqq.columns = ['_'.join(map(str, col)).strip().title() for col in qqq.columns]
-        else:
-            qqq.columns = [str(col).strip().title() for col in qqq.columns]
+        qqq.columns = [col.title() for col in qqq.columns]
         
         if qqq is None or qqq.empty or 'Close' not in qqq.columns:
             st.error("❌ Failed to load valid QQQ data. Using fallback data.")
@@ -164,15 +163,12 @@ def load_data_and_models():
                 'Volume': np.linspace(1000000, 5000000, len(dates)),
                 'Adj Close': np.linspace(100, 500, len(dates))
             }, index=dates)
-            qqq.columns = [str(col).strip().title() for col in qqq.columns]
+            qqq.columns = [col.title() for col in qqq.columns]
         
         def get_data_with_fallback(ticker, fallback_value, name):
             data = fetch_data(ticker, start_date)
             st.write(f"{name} Data: Shape={data.shape}, Columns={list(data.columns)}")
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = ['_'.join(map(str, col)).strip().title() for col in data.columns]
-            else:
-                data.columns = [str(col).strip().title() for col in data.columns]
+            data.columns = [col.title() for col in data.columns]
             if data is None or data.empty or 'Close' not in data.columns:
                 st.warning(f"⚠️ Using fallback value {fallback_value} for {name}")
                 return pd.Series(fallback_value, index=qqq.index, name='Close')
@@ -213,17 +209,18 @@ def load_data_and_models():
         
         available_features = essential_features.copy()
         for col in ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']:
-            if col.title() in qqq.columns:
-                available_features.append(col.title())
+            if col in qqq.columns:
+                available_features.append(col)
 
-        available_features = [str(col).strip().title() for col in available_features]
+        missing_features = [col for col in available_features if col not in qqq.columns]
+        if missing_features:
+            st.warning(f"Missing features {missing_features} in qqq DataFrame. Removing from available_features.")
+            available_features = [col for col in available_features if col in qqq.columns]
         
         X = qqq[available_features].copy()
         y = qqq['Close']
         X = X.dropna()
         y = y.loc[X.index]
-
-        X.columns = [str(col).strip().title() for col in X.columns]
 
         model_xgb = train_model(X, y)
         if model_xgb is None:
@@ -242,14 +239,13 @@ def load_data_and_models():
             poly_transformer = None
             model_poly = model_linear
 
-        return qqq, model_xgb, model_linear, model_poly, poly_transformer, available_features
+        return qqq, model_xgb, linear_model, model_poly, poly_transformer, available_features
     except Exception as e:
         st.error(f"❌ Critical error in load_data_and_models: {str(e)}")
         import traceback
         st.error(traceback.format_exc())
         return None, None, None, None, None, None
 
-# Load model and data with spinner
 with st.spinner("Loading data and training models. This may take up to 30 seconds..."):
     try:
         result = load_data_and_models()
@@ -258,7 +254,6 @@ with st.spinner("Loading data and training models. This may take up to 30 second
         st.error(f"Error loading data and models: {e}")
         result = None
 
-# Final safety check - create synthetic data if everything else failed
 if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, available_features]):
     st.error("""
     ❌ Failed to load QQQ data. Possible reasons:
@@ -299,13 +294,11 @@ if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, 
     qqq_data['Sentiment'] = 70
     qqq_data['Volatility'] = qqq_data['Close'].rolling(window=20).std().fillna(0)
     
-    qqq_data.columns = [str(col).strip().title() for col in qqq_data.columns]
+    qqq_data.columns = [col.title() for col in qqq_data.columns]
     
     available_features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                          '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
                          'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
-    
-    available_features = [str(col).strip().title() for col in available_features]
     
     X = qqq_data[available_features].copy()
     y = qqq_data['Close']
@@ -391,14 +384,13 @@ try:
     }, index=future_dates)
     
     for col in ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']:
-        if col.title() in available_features:
-            if col.title() in qqq_data.columns:
-                future_df[col.title()] = qqq_data[col.title()].iloc[-1]
+        if col in available_features:
+            if col in qqq_data.columns:
+                future_df[col] = qqq_data[col].iloc[-1]
             else:
-                future_df[col.title()] = latest_close
+                future_df[col] = latest_close
 
     future_df = future_df[available_features]
-    future_df.columns = [str(col).strip().title() for col in future_df.columns]
     
     forecast = xgb_model.predict(future_df)
     if poly is not None:
@@ -436,7 +428,6 @@ fig.add_trace(go.Scatter(x=future_dates, y=forecast_lower, name="Lower Bound", f
 
 if show_tech:
     tech_cols = ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
-    tech_cols = [col.title() for col in tech_cols]
     colors = ['purple', 'green', 'red', 'blue', 'orange', 'gray', 'gray', 'gray', 'orange']
     styles = ['dot', 'dot', 'dash', 'dash', 'solid', 'solid', 'solid', 'solid', 'solid']
     
@@ -511,14 +502,13 @@ if compare:
         }, index=future_dates)
         
         for col in ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']:
-            if col.title() in available_features:
-                if col.title() in qqq_data.columns:
-                    comp_df[col.title()] = qqq_data[col.title()].iloc[-1]
+            if col in available_features:
+                if col in qqq_data.columns:
+                    comp_df[col] = qqq_data[col].iloc[-1]
                 else:
-                    comp_df[col.title()] = latest_close
+                    comp_df[col] = latest_close
         
         comp_df = comp_df[available_features]
-        comp_df.columns = [str(col).strip().title() for col in comp_df.columns]
         
         try:
             yhat = xgb_model.predict(comp_df)
@@ -548,7 +538,6 @@ if backtest_mode:
         try:
             backtest_features = [col for col in available_features if col in back_df.columns]
             back_df = back_df[backtest_features]
-            back_df.columns = [str(col).strip().title() for col in back_df.columns]
             
             back_df['Prediction'] = xgb_model.predict(back_df)
             if poly is not None:
@@ -582,7 +571,6 @@ if st.checkbox("Show Feature Importance"):
 
 st.subheader("📥 Download Forecast Data")
 forecast_df = future_df.copy()
-forecast_df.columns = [str(col).strip().title() for col in forecast_df.columns]
 forecast_df['Forecast'] = forecast
 forecast_df['Date'] = future_dates
 forecast_df.set_index('Date', inplace=True)
@@ -590,7 +578,6 @@ st.download_button("Download Forecast CSV", forecast_df.to_csv().encode(), file_
 
 if show_tech:
     tech_cols = ['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
-    tech_cols = [col.title() for col in tech_cols]
     tech_cols = [col for col in tech_cols if col in qqq_data.columns]
     if tech_cols:
         tech_df = qqq_data[tech_cols].dropna()
