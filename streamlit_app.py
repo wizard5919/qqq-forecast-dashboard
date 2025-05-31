@@ -130,9 +130,7 @@ def load_model_and_data():
 
         # Fix MultiIndex issue with column names
         if isinstance(X.columns, pd.MultiIndex):
-    X.columns = pd.MultiIndex.from_tuples(
-        [(str(i).strip() for i in col) for col in X.columns]
-    )
+X.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else str(col).strip() for col in X.columns])
 else:
     X.columns = X.columns.astype(str).str.strip()
 
