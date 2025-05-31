@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime
 import yfinance as yf
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import VotingRegressor
+from sklearn.preprocessing import PolynomialFeatures
 import xgboost as xgb
 import plotly.graph_objects as go
 import io
@@ -100,7 +100,7 @@ def load_data_and_models():
         treasury2 = fetch_data("^IRX", start_date)
 
         if any(df is None for df in [qqq, vix, treasury10, treasury2]):
-            return None, None, None, None
+            return None, None, None, None, None
 
         vix = vix['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
         treasury10 = treasury10['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
@@ -136,35 +136,29 @@ def load_data_and_models():
 
         model_xgb = train_model(X, y)
         if model_xgb is None:
-            return None, None, None, None
+            return None, None, None, None, None
 
         model_linear = LinearRegression().fit(X, y)
-        poly_features = np.column_stack([X.values, X.values ** 2])
+        poly = PolynomialFeatures(degree=2)
+        poly_features = poly.fit_transform(X)
         model_poly = LinearRegression().fit(poly_features, y)
 
-        # Combine models into an ensemble
-        model = VotingRegressor(estimators=[
-            ('xgb', model_xgb),
-            ('linear', model_linear),
-            ('poly', model_poly)
-        ])
-        model.fit(X, y)
-
-        return model, features, qqq, qqq['Close'].iloc[-1]
+        return qqq, model_xgb, model_linear, model_poly, poly
     except Exception as e:
         st.error(f"Error in load_data_and_models: {e}")
-        return None, None, None, None
+        return None, None, None, None, None
 
 # Load model and data
-model, features, qqq_data, latest_close = load_data_and_models()
+qqq_data, xgb_model, linear_model, poly_model, poly = load_data_and_models()
 
-if model is None or qqq_data is None:
+if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, poly]):
     st.error("Failed to load model or data. Please try again later.")
     st.stop()
 
 st.title("📈 QQQ Forecast Simulator")
 
 # User inputs
+latest_close = qqq_data['Close'].iloc[-1]
 use_live_price = st.checkbox("📡 Use Live QQQ Close ($%.2f) as Starting Point" % latest_close, value=True)
 horizon = st.selectbox("📆 Forecast Horizon (days)", [30, 60, 90], index=[30, 60, 90].index(st.session_state.horizon))
 show_tech = st.checkbox("📊 Show Technical Indicators")
@@ -202,6 +196,9 @@ else:
 # Create future dataframe
 future_dates = pd.date_range(start=datetime.today(), periods=horizon, freq='D')
 date_ordinals = [d.toordinal() for d in future_dates]
+features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
+            '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
+            'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
 future_df = pd.DataFrame({
     'Date_Ordinal': date_ordinals,
     'FedFunds': fed,
@@ -227,7 +224,13 @@ future_df = future_df[features]
 
 # Make predictions
 try:
-    forecast = model.predict(future_df)
+    # Use XGBoost for main forecast
+    forecast = xgb_model.predict(future_df)
+    # Adjust with polynomial features for poly_model
+    future_poly = poly.transform(future_df)
+    forecast_poly = poly_model.predict(future_poly)
+    # Average the predictions
+    forecast = (forecast + forecast_poly) / 2
     forecast *= (1 + macro_bias)
     if use_live_price:
         shift = latest_close - forecast[0]
@@ -269,7 +272,10 @@ for val in cpi_range:
     temp_df = future_df.copy()
     temp_df['CPI'] = val
     try:
-        temp_pred = model.predict(temp_df)
+        temp_pred = xgb_model.predict(temp_df)
+        temp_poly = poly.transform(temp_df)
+        temp_pred_poly = poly_model.predict(temp_poly)
+        temp_pred = (temp_pred + temp_pred_poly) / 2
         if use_live_price:
             temp_pred += (latest_close - temp_pred[0])
         temp_pred *= (1 + macro_bias)
@@ -308,7 +314,9 @@ if compare:
         }, index=future_dates)
         comp_df = comp_df[features]
         try:
-            yhat = model.predict(comp_df)
+            yhat = xgb_model.predict(comp_df)
+            yhat_poly = poly_model.predict(poly.transform(comp_df))
+            yhat = (yhat + yhat_poly) / 2
             if use_live_price:
                 yhat += (latest_close - yhat[0])
             yhat *= (1 + macro_bias)
@@ -326,7 +334,9 @@ if backtest_mode:
     back_df = qqq_data.loc[qqq_data.index >= pd.to_datetime(backtest_date)].copy()
     if not back_df.empty:
         try:
-            back_df['Prediction'] = model.predict(back_df[features])
+            back_df['Prediction'] = xgb_model.predict(back_df[features])
+            back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df[features]))
+            back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
             mae = mean_absolute_error(back_df['Close'], back_df['Prediction'])
             rmse = np.sqrt(mean_squared_error(back_df['Close'], back_df['Prediction']))
             st.write(f"**Backtest Metrics:** MAE: {mae:.2f}, RMSE: {rmse:.2f}")
@@ -345,7 +355,7 @@ st.subheader("📌 Feature Importance (XGBoost)")
 if st.checkbox("Show Feature Importance"):
     try:
         fig_imp, ax = plt.subplots(figsize=(10, 6))
-        xgb.plot_importance(model.estimators_[0].get_booster(), ax=ax, importance_type='weight')
+        xgb.plot_importance(xgb_model.get_booster(), ax=ax, importance_type='weight')
         plt.tight_layout()
         st.pyplot(fig_imp)
     except Exception as e:
