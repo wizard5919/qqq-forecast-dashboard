@@ -52,6 +52,7 @@ def fetch_data(ticker, start_date):
                 else:
                     df.columns = [str(col).strip().title() for col in df.columns]
                 
+                df.columns = [str(col).strip().title() for col in df.columns]  # Normalize again after flattening
                 missing_required = [col for col in expected_columns if col not in df.columns]
                 if not missing_required:
                     if 'Adj Close' not in df.columns:
@@ -79,9 +80,16 @@ def fetch_data(ticker, start_date):
         'Volume': np.linspace(1000000, 5000000, len(dates)),
         'Adj Close': np.linspace(100, 500, len(dates))
     }, index=dates)
-    df.columns = [col.title() for col in df.columns]
+    df.columns = [str(col).strip().title() for col in df.columns]  # Normalize fallback column names
     return df
 
+# Be sure to apply the same column flattening logic to all data pulls (e.g., VIX, TNX, IRX)
+
+# Also in load_data_and_models, replace any hard-coded title-casing of columns with:
+# qqq.columns = [str(col).strip().title() for col in qqq.columns]
+# vix.columns = [str(col).strip().title() for col in vix.columns]
+# treasury10.columns = [str(col).strip().title() for col in treasury10.columns]
+# treasury2.columns = [str(col).strip().title() for col in treasury2.columns]
 
 def add_technical_indicators(df):
     df = df.copy()
