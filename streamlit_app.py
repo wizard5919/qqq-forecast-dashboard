@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-
-
-=======
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -31,6 +27,17 @@ if 'fed' not in st.session_state:
     st.session_state.sent = 70
     st.session_state.macro_bias = 0.0
     st.session_state.horizon = 30
+
+def fetch_data(ticker, start_date):
+    """Fetch data for a given ticker using yfinance."""
+    try:
+        df = yf.download(ticker, start=start_date, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] for col in df.columns]
+        return df
+    except Exception as e:
+        st.error(f"Error fetching data for {ticker}: {e}")
+        return None
 
 def add_technical_indicators(df):
     """
@@ -65,17 +72,35 @@ def add_technical_indicators(df):
     df = df.drop(['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 'Cumulative_Volume', 'TR', 'ATR'], axis=1, errors='ignore')
     return df
 
+def train_model(X, y):
+    """Train an XGBoost model."""
+    try:
+        model_xgb = xgb.XGBRegressor(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=5,
+            random_state=42
+        )
+        model_xgb.fit(X, y)
+        return model_xgb
+    except Exception as e:
+        st.error(f"Error training model: {e}")
+        return None
+
 @st.cache_resource
 def load_data_and_models():
     try:
         start_date = "2018-01-01"
         qqq = yf.download("QQQ", start=start_date, progress=False)
+        if isinstance(qqq.columns, pd.MultiIndex):
+            qqq.columns = [col[0] for col in qqq.columns]
+
         vix = fetch_data("^VIX", start_date)
         treasury10 = fetch_data("^TNX", start_date)
         treasury2 = fetch_data("^IRX", start_date)
 
         if any(df is None for df in [qqq, vix, treasury10, treasury2]):
-            return None, None, None, None, None
+            return None, None, None, None
 
         vix = vix['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
         treasury10 = treasury10['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
@@ -100,30 +125,38 @@ def load_data_and_models():
         features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                     '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
                     'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
-        
+
         X = qqq[features].copy()
         y = qqq['Close']
         X = X.dropna()
         y = y.loc[X.index]
 
-        # ✅ Fix MultiIndex issue with column names
-        if isinstance(X.columns, pd.MultiIndex):
-            X.columns = ['_'.join(map(str, col)).strip() for col in X.columns.to_flat_index()]
-        else:
-            X.columns = X.columns.astype(str).str.strip()
+        # Fix MultiIndex issue
+        X.columns = ['_'.join(map(str, col)).strip() for col in X.columns] if isinstance(X.columns, pd.MultiIndex) else X.columns.astype(str).str.strip()
 
         model_xgb = train_model(X, y)
+        if model_xgb is None:
+            return None, None, None, None
+
         model_linear = LinearRegression().fit(X, y)
         poly_features = np.column_stack([X.values, X.values ** 2])
         model_poly = LinearRegression().fit(poly_features, y)
 
-        return model_xgb, features, qqq, qqq['Close'].iloc[-1]
+        # Combine models into an ensemble
+        model = VotingRegressor(estimators=[
+            ('xgb', model_xgb),
+            ('linear', model_linear),
+            ('poly', model_poly)
+        ])
+        model.fit(X, y)
+
+        return model, features, qqq, qqq['Close'].iloc[-1]
     except Exception as e:
         st.error(f"Error in load_data_and_models: {e}")
         return None, None, None, None
 
 # Load model and data
-model, features, qqq_data, latest_close = load_model_and_data()
+model, features, qqq_data, latest_close = load_data_and_models()
 
 if model is None or qqq_data is None:
     st.error("Failed to load model or data. Please try again later.")
@@ -312,7 +345,7 @@ st.subheader("📌 Feature Importance (XGBoost)")
 if st.checkbox("Show Feature Importance"):
     try:
         fig_imp, ax = plt.subplots(figsize=(10, 6))
-        xgb.plot_importance(model.get_booster(), ax=ax, importance_type='weight')
+        xgb.plot_importance(model.estimators_[0].get_booster(), ax=ax, importance_type='weight')
         plt.tight_layout()
         st.pyplot(fig_imp)
     except Exception as e:
@@ -338,4 +371,3 @@ try:
     st.download_button("Download Forecast Chart as PNG", buf.getvalue(), file_name="forecast_chart.png")
 except Exception as e:
     st.warning(f"Error generating chart download: {e}")
->>>>>>> 23102dcae7169b96d5a6bd96f073ff594a9745cd
