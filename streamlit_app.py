@@ -81,11 +81,12 @@ def add_technical_indicators(df):
         
         # Calculate Keltner Channels
         df['KC_Middle'] = df['Close'].ewm(span=20, adjust=False).mean()
-        tr = pd.DataFrame()
-        tr['h_l'] = df['High'] - df['Low']
-        tr['h_pc'] = abs(df['High'] - df['Close'].shift())
-        tr['l_pc'] = abs(df['Low'] - df['Close'].shift())
-        df['TR'] = tr[['h_l', 'h_pc', 'l_pc']].max(axis=1)
+        
+        # Calculate True Range (TR) without creating a separate DataFrame
+        df['h_l'] = df['High'] - df['Low']
+        df['h_pc'] = abs(df['High'] - df['Close'].shift())
+        df['l_pc'] = abs(df['Low'] - df['Close'].shift())
+        df['TR'] = df[['h_l', 'h_pc', 'l_pc']].max(axis=1)
         df['ATR'] = df['TR'].ewm(span=20, adjust=False).mean()
         
         k_mult = 2
@@ -94,7 +95,7 @@ def add_technical_indicators(df):
         
         # Cleanup temporary columns
         cols_to_drop = ['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 
-                       'Cumulative_Volume', 'TR', 'ATR']
+                       'Cumulative_Volume', 'TR', 'ATR', 'h_l', 'h_pc', 'l_pc']
         for col in cols_to_drop:
             if col in df.columns:
                 df = df.drop(col, axis=1)
