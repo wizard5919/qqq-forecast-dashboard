@@ -286,11 +286,12 @@ if show_tech:
                     x=qqq_data.index, 
                     y=qqq_data[col], 
                     name=col, 
-                    line=dict(color=color, dash=style))
+                    line=dict(color=color, dash=style)
+                )
     
     if 'Volatility' in qqq_data.columns:
         fig.update_layout(yaxis2=dict(title="Volatility", overlaying='y', side='right'))
-
+    
 fig.update_layout(title="QQQ Price Forecast", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
 st.plotly_chart(fig, use_container_width=True)
 
