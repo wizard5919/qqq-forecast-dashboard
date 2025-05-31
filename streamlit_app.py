@@ -219,9 +219,6 @@ def load_data_and_models():
         X = X.dropna()
         y = y.loc[X.index]
 
-        # Handle column names safely
-        X.columns = [str(col).strip() for col in X.columns]
-
         # Train models
         model_xgb = train_model(X, y)
         if model_xgb is None:
@@ -411,7 +408,14 @@ try:
 
     # Reorder columns to match training data
     future_df = future_df[available_features]
-
+    
+    # FIX: Rename columns to match model's expected feature names
+    try:
+        model_feature_names = xgb_model.get_booster().feature_names
+        future_df.columns = model_feature_names
+    except Exception as e:
+        st.warning(f"⚠️ Feature renaming warning: {e}. Using original names.")
+    
     # Make predictions
     # Use XGBoost for main forecast
     forecast = xgb_model.predict(future_df)
@@ -437,6 +441,8 @@ try:
     forecast_lower = forecast - confidence_std
 except Exception as e:
     st.error(f"Error making predictions: {e}")
+    import traceback
+    st.error(traceback.format_exc())
     st.stop()
 
 # Only proceed if we have a valid forecast
@@ -537,6 +543,12 @@ if compare:
         comp_df = comp_df[available_features]
         
         try:
+            # FIX: Align feature names for scenario predictions
+            try:
+                comp_df.columns = xgb_model.get_booster().feature_names
+            except Exception as e:
+                st.warning(f"Feature alignment warning for {name}: {e}")
+                
             yhat = xgb_model.predict(comp_df)
             if poly is not None:
                 yhat_poly = poly_model.predict(poly.transform(comp_df))
@@ -564,17 +576,26 @@ if backtest_mode:
         try:
             # Use available_features instead of features
             backtest_features = [col for col in available_features if col in back_df.columns]
-            back_df['Prediction'] = xgb_model.predict(back_df[backtest_features])
+            
+            # FIX: Align feature names for backtesting
+            try:
+                model_feature_names = xgb_model.get_booster().feature_names
+                back_df = back_df[model_feature_names]
+            except Exception as e:
+                st.warning(f"Backtest feature alignment warning: {e}")
+                back_df = back_df[backtest_features]
+            
+            back_df['Prediction'] = xgb_model.predict(back_df)
             
             # Handle poly model if available
             if poly is not None:
-                back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df[backtest_features]))
+                back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df))
             else:
-                back_df['Prediction_Poly'] = linear_model.predict(back_df[backtest_features])
+                back_df['Prediction_Poly'] = linear_model.predict(back_df)
                 
             back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
-            mae = mean_absolute_error(back_df['Close'], back_df['Prediction'])  # Removed extra parenthesis
-            rmse = np.sqrt(mean_squared_error(back_df['Close'], back_df['Prediction']))  # Fixed parenthesis
+            mae = mean_absolute_error(back_df['Close'], back_df['Prediction'])
+            rmse = np.sqrt(mean_squared_error(back_df['Close'], back_df['Prediction']))
             st.write(f"**Backtest Metrics:** MAE: {mae:.2f}, RMSE: {rmse:.2f}")
             fig_bt = go.Figure()
             fig_bt.add_trace(go.Scatter(x=back_df.index, y=back_df['Close'], name="Actual", line=dict(color='black')))
