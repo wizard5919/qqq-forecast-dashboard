@@ -29,6 +29,15 @@ if 'fed' not in st.session_state:
     st.session_state.macro_bias = 0.0
     st.session_state.horizon = 30
 
+# Initialize all variables with default values
+qqq_data = None
+xgb_model = None
+linear_model = None
+poly_model = None
+poly = None
+available_features = None
+latest_close = 400.0  # Default value
+
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     for i in range(3):
@@ -72,9 +81,10 @@ def add_technical_indicators(df):
         for span in [9, 20, 50, 200]:
             df[f'EMA_{span}'] = df['Close'].ewm(span=span, adjust=False).mean()
         
-        # Calculate VWAP
-        df['Typical_Price'] = (df['High'] + df['Low'] + df['Close']) / 3
-        df['Price_x_Volume'] = df['Typical_Price'] * df['Volume']
+        # Calculate VWAP - ensure we're working with Series, not DataFrames
+        typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+        df['Typical_Price'] = typical_price
+        df['Price_x_Volume'] = typical_price * df['Volume']
         df['Cumulative_Price_Volume'] = df['Price_x_Volume'].cumsum()
         df['Cumulative_Volume'] = df['Volume'].cumsum()
         df['VWAP'] = df['Cumulative_Price_Volume'] / df['Cumulative_Volume']
@@ -82,11 +92,14 @@ def add_technical_indicators(df):
         # Calculate Keltner Channels
         df['KC_Middle'] = df['Close'].ewm(span=20, adjust=False).mean()
         
-        # Calculate True Range (TR) without creating a separate DataFrame
-        df['h_l'] = df['High'] - df['Low']
-        df['h_pc'] = abs(df['High'] - df['Close'].shift())
-        df['l_pc'] = abs(df['Low'] - df['Close'].shift())
-        df['TR'] = df[['h_l', 'h_pc', 'l_pc']].max(axis=1)
+        # Calculate True Range (TR)
+        tr = pd.DataFrame()
+        tr['h_l'] = df['High'] - df['Low']
+        tr['h_pc'] = abs(df['High'] - df['Close'].shift())
+        tr['l_pc'] = abs(df['Low'] - df['Close'].shift())
+        
+        # Safely add TR to main DataFrame
+        df['TR'] = tr.max(axis=1)
         df['ATR'] = df['TR'].ewm(span=20, adjust=False).mean()
         
         k_mult = 2
@@ -95,7 +108,7 @@ def add_technical_indicators(df):
         
         # Cleanup temporary columns
         cols_to_drop = ['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 
-                       'Cumulative_Volume', 'TR', 'ATR', 'h_l', 'h_pc', 'l_pc']
+                       'Cumulative_Volume', 'TR', 'ATR']
         for col in cols_to_drop:
             if col in df.columns:
                 df = df.drop(col, axis=1)
@@ -103,6 +116,8 @@ def add_technical_indicators(df):
         return df
     except Exception as e:
         st.error(f"Error adding technical indicators: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return df
 
 def train_model(X, y):
@@ -219,15 +234,15 @@ def load_data_and_models():
         
         # Only use polynomial features if we have < 20 features
         if len(available_features) < 20:
-            poly = PolynomialFeatures(degree=2)
-            poly_features = poly.fit_transform(X)
+            poly_transformer = PolynomialFeatures(degree=2)
+            poly_features = poly_transformer.fit_transform(X)
             model_poly = LinearRegression().fit(poly_features, y)
         else:
             st.warning("Too many features for polynomial model. Using linear model instead.")
-            poly = None
+            poly_transformer = None
             model_poly = model_linear
 
-        return qqq, model_xgb, model_linear, model_poly, poly, available_features
+        return qqq, model_xgb, model_linear, model_poly, poly_transformer, available_features
     except Exception as e:
         st.error(f"❌ Critical error in load_data_and_models: {str(e)}")
         import traceback
@@ -236,10 +251,15 @@ def load_data_and_models():
 
 # Load model and data with spinner
 with st.spinner("Loading data and training models. This may take up to 30 seconds..."):
-    qqq_data, xgb_model, linear_model, poly_model, poly, available_features = load_data_and_models()
+    try:
+        result = load_data_and_models()
+        qqq_data, xgb_model, linear_model, poly_model, poly, available_features = result
+    except Exception as e:
+        st.error(f"Error loading data and models: {e}")
+        result = None
 
 # Final safety check - create synthetic data if everything else failed
-if qqq_data is None:
+if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, available_features]):
     st.error("""
     ❌ Failed to load QQQ data. Possible reasons:
     1. Yahoo Finance API is unavailable
@@ -299,15 +319,29 @@ if qqq_data is None:
 st.title("📈 QQQ Forecast Simulator")
 
 # Define latest_close here before any user inputs
-if 'Close' in qqq_data.columns:
-    latest_close = qqq_data['Close'].iloc[-1]
-else:
-    # If we're missing Close column, use a default value
-    st.error("Close price not found in data. Using default value.")
-    latest_close = 400.0  # Default value
+try:
+    if 'Close' in qqq_data.columns and not qqq_data['Close'].empty:
+        # Ensure we get a scalar value, not a Series
+        latest_close = qqq_data['Close'].iloc[-1]
+        if isinstance(latest_close, pd.Series):
+            latest_close = latest_close.values[0]
+        elif isinstance(latest_close, pd.DataFrame):
+            latest_close = latest_close.iloc[0, 0]
+    else:
+        st.error("Close price not found in data. Using default value.")
+        latest_close = 400.0
+except:
+    st.error("Error getting latest close price. Using default value.")
+    latest_close = 400.0
 
 # User inputs section
-use_live_price = st.checkbox(f"📡 Use Live QQQ Close (${latest_close:.2f}) as Starting Point", value=True)
+try:
+    checkbox_label = f"📡 Use Live QQQ Close (${latest_close:.2f}) as Starting Point"
+except:
+    checkbox_label = "📡 Use Live QQQ Close as Starting Point"
+    latest_close = 400.0
+
+use_live_price = st.checkbox(checkbox_label, value=True)
 horizon = st.selectbox("📆 Forecast Horizon (days)", [30, 60, 90], index=[30, 60, 90].index(st.session_state.horizon))
 show_tech = st.checkbox("📊 Show Technical Indicators")
 macro_bias = st.slider("🧠 Macro News Sentiment Overlay (-10% to +10%)", -0.10, 0.10, st.session_state.macro_bias, step=0.01)
