@@ -123,11 +123,16 @@ def load_model_and_data():
         features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                     '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
                     'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
-        X = qqq[features].copy()
+   X = qqq[features].copy()
         y = qqq['Close']
         X = X.dropna()
         y = y.loc[X.index]
-        X.columns = X.columns.astype(str)
+
+        # Fix MultiIndex issue with column names
+        if isinstance(X.columns, pd.MultiIndex):
+            X.columns = ['_'.join(map(str, col)).strip('_').strip() for col in X.columns]
+        else:
+            X.columns = X.columns.astype(str).str.strip()
 
         model = train_model(X, y)
         if model is None:
