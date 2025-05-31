@@ -42,6 +42,8 @@ latest_close = 400.0
 
 # Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
 
+# Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
+
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     max_retries = 5
@@ -130,17 +132,16 @@ def safe_feature_subset(df, feature_list):
         st.warning(f"Missing features: {missing}")
     return df[existing].copy()
 
-# Example usage (replace):
-# X = qqq_data[available_features].copy()
-# With:
-# X = safe_feature_subset(qqq_data, available_features)
+# Example usage (applied fix):
+X = safe_feature_subset(qqq_data, available_features)
 
 # Apply this also to:
-# future_df = safe_feature_subset(future_df, available_features)
-# comp_df = safe_feature_subset(comp_df, available_features)
-# back_df = safe_feature_subset(back_df, available_features)
+#future_df = safe_feature_subset(future_df, available_features)
+#comp_df = safe_feature_subset(comp_df, available_features)
+#back_df = safe_feature_subset(back_df, available_features)
 
 # This ensures robust feature alignment across all DataFrames
+
 
 
 def add_technical_indicators(df):
