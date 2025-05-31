@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,8 +13,8 @@ import time
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import requests
-import uuid
 import traceback
+import uuid
 
 st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide")
 
@@ -43,12 +44,12 @@ latest_close = 400.0
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     max_retries = 5
-    retry_delay = 5
+    retry_delay = 10  # Increased delay to avoid rate-limiting
     expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
 
     for i in range(max_retries):
         try:
-            df = yf.download(ticker, start=start_date, progress=False, timeout=10)
+            df = yf.download(ticker, start=start_date, progress=False, timeout=15)
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = [col[0] for col in df.columns]
@@ -64,6 +65,8 @@ def fetch_data(ticker, start_date):
                     st.warning(f"Missing required columns {missing_required} for {ticker}, attempt {i+1}/{max_retries}")
             else:
                 st.warning(f"Empty data for {ticker}, attempt {i+1}/{max_retries}")
+        except yf.YFTzMissingError as e:
+            st.warning(f"YFTzMissingError fetching {ticker}: {e}, attempt {i+1}/{max_retries}")
         except requests.exceptions.RequestException as e:
             st.warning(f"Network error fetching {ticker}: {e}, attempt {i+1}/{max_retries}")
         except Exception as e:
@@ -85,7 +88,7 @@ def fetch_data(ticker, start_date):
 
 def normalize_columns(df):
     """Normalize column names to title case"""
-    if df is not None:
+    if df is not None and hasattr(df, 'columns'):
         df.columns = [str(col).strip().title() for col in df.columns]
     return df
 
@@ -177,7 +180,15 @@ def load_data_and_models():
                 'Low': np.linspace(95, 495, len(dates)),
                 'Close': np.linspace(100, 500, len(dates)),
                 'Volume': np.linspace(1000000, 5000000, len(dates)),
-                'Adj Close': np.linspace(100, 500, len(dates))
+                'Adj Close': np.linspace(100, 500, len(dates)),
+                'Ema_9': np.linspace(100, 500, len(dates)),
+                'Ema_20': np.linspace(100, 500, len(dates)),
+                'Ema_50': np.linspace(100, 500, len(dates)),
+                'Ema_200': np.linspace(100, 500, len(dates)),
+                'Vwap': np.linspace(100, 500, len(dates)),
+                'Kc_Upper': np.linspace(105, 505, len(dates)),
+                'Kc_Lower': np.linspace(95, 495, len(dates)),
+                'Kc_Middle': np.linspace(100, 500, len(dates))
             }, index=dates)
         qqq = normalize_columns(qqq)
         st.write(f"QQQ Data: Shape={qqq.shape}, Columns={list(qqq.columns)}")
@@ -294,7 +305,15 @@ if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, 
         'Low': np.linspace(95, 495, len(dates)),
         'Close': np.linspace(100, 500, len(dates)),
         'Volume': np.linspace(1000000, 5000000, len(dates)),
-        'Adj Close': np.linspace(100, 500, len(dates))
+        'Adj Close': np.linspace(100, 500, len(dates)),
+        'Ema_9': np.linspace(100, 500, len(dates)),
+        'Ema_20': np.linspace(100, 500, len(dates)),
+        'Ema_50': np.linspace(100, 500, len(dates)),
+        'Ema_200': np.linspace(100, 500, len(dates)),
+        'Vwap': np.linspace(100, 500, len(dates)),
+        'Kc_Upper': np.linspace(105, 505, len(dates)),
+        'Kc_Lower': np.linspace(95, 495, len(dates)),
+        'Kc_Middle': np.linspace(100, 500, len(dates))
     }, index=dates)
     
     qqq_data = add_technical_indicators(qqq_data)
