@@ -15,6 +15,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import requests
 import traceback
 import uuid
+import kaleido  # Required for chart export
 
 st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide")
 
@@ -44,12 +45,12 @@ latest_close = 400.0
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     max_retries = 5
-    retry_delay = 10  # Increased delay to avoid rate-limiting
+    retry_delay = 15  # Increased delay to avoid rate-limiting
     expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
 
     for i in range(max_retries):
         try:
-            df = yf.download(ticker, start=start_date, progress=False, timeout=15)
+            df = yf.download(ticker, start=start_date, progress=False, timeout=20)
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = [col[0] for col in df.columns]
@@ -81,7 +82,15 @@ def fetch_data(ticker, start_date):
         'Low': np.linspace(95, 495, len(dates)),
         'Close': np.linspace(100, 500, len(dates)),
         'Volume': np.linspace(1000000, 5000000, len(dates)),
-        'Adj Close': np.linspace(100, 500, len(dates))
+        'Adj Close': np.linspace(100, 500, len(dates)),
+        'Ema_9': np.linspace(100, 500, len(dates)),
+        'Ema_20': np.linspace(100, 500, len(dates)),
+        'Ema_50': np.linspace(100, 500, len(dates)),
+        'Ema_200': np.linspace(100, 500, len(dates)),
+        'Vwap': np.linspace(100, 500, len(dates)),
+        'Kc_Upper': np.linspace(105, 505, len(dates)),
+        'Kc_Lower': np.linspace(95, 495, len(dates)),
+        'Kc_Middle': np.linspace(100, 500, len(dates))
     }, index=dates)
     df.columns = [str(col).strip().title() for col in df.columns]
     return df
@@ -631,7 +640,7 @@ if show_tech:
 # Download Forecast Chart
 buf = io.BytesIO()
 try:
-    fig.write_image(buf, format="png")
+    fig.write_image(buf, format="png", engine="kaleido")
     st.download_button("Download Forecast Chart as PNG", buf.getvalue(), file_name="forecast_chart.png")
 except Exception as e:
     st.warning(f"Error generating chart download: {e}")
