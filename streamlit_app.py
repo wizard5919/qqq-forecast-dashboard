@@ -214,10 +214,17 @@ def load_data_and_models():
             if col in qqq.columns:
                 available_features.append(col)
 
+        # FIX 1: Clean feature names by stripping spaces
+        qqq.columns = [col.strip() for col in qqq.columns]
+        available_features = [col.strip() for col in available_features]
+        
         X = qqq[available_features].copy()
         y = qqq['Close']
         X = X.dropna()
         y = y.loc[X.index]
+
+        # FIX 2: Ensure consistent feature names
+        X.columns = [col.strip() for col in X.columns]
 
         # Train models
         model_xgb = train_model(X, y)
@@ -303,6 +310,10 @@ if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, 
     available_features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                          '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
                          'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
+    
+    # FIX 3: Clean feature names in synthetic data
+    qqq_data.columns = [col.strip() for col in qqq_data.columns]
+    available_features = [col.strip() for col in available_features]
     
     # Create simple linear models as fallback
     X = qqq_data[available_features].copy()
@@ -409,15 +420,8 @@ try:
     # Reorder columns to match training data
     future_df = future_df[available_features]
     
-    # FIX 1: Handle trailing spaces in feature names
-    try:
-        model_feature_names = xgb_model.get_booster().feature_names
-        # Clean names by stripping whitespace
-        model_feature_names_clean = [name.strip() for name in model_feature_names]
-        future_df.columns = [col.strip() for col in future_df.columns]
-        future_df = future_df[model_feature_names_clean]
-    except Exception as e:
-        st.warning(f"⚠️ Feature alignment warning: {e}")
+    # FIX 4: Clean feature names and align with model
+    future_df.columns = [col.strip() for col in future_df.columns]
     
     # Make predictions
     # Use XGBoost for main forecast
@@ -434,7 +438,7 @@ try:
         forecast_linear = linear_model.predict(future_df)
         forecast = (forecast + forecast_linear) / 2
         
-    # FIX 2: Ensure forecast is 1D array
+    # FIX 5: Ensure forecast is 1D array
     forecast = forecast.ravel()
         
     forecast *= (1 + macro_bias)
@@ -449,6 +453,11 @@ except Exception as e:
     st.error(f"Error making predictions: {e}")
     import traceback
     st.error(traceback.format_exc())
+    st.stop()
+
+# Only proceed if we have a valid forecast
+if forecast is None or forecast_upper is None or forecast_lower is None:
+    st.error("Forecasting failed. Please try again.")
     st.stop()
 
 # Main forecast plot
@@ -493,13 +502,7 @@ cpi_range = np.linspace(cpi - 1, cpi + 1, 5)
 sens_fig = go.Figure()
 for val in cpi_range:
     temp_df = future_df.copy()
-    
-    # FIX 3: Handle CPI column name consistently
-    cpi_col = 'CPI'
-    if 'CPI ' in temp_df.columns:
-        cpi_col = 'CPI '  # Handle trailing space
-        
-    temp_df[cpi_col] = val
+    temp_df['CPI'] = val
     
     try:
         temp_pred = xgb_model.predict(temp_df)
@@ -553,13 +556,10 @@ if compare:
         
         comp_df = comp_df[available_features]
         
+        # FIX 6: Clean column names for scenarios
+        comp_df.columns = [col.strip() for col in comp_df.columns]
+        
         try:
-            # FIX: Align feature names for scenario predictions
-            try:
-                comp_df.columns = xgb_model.get_booster().feature_names
-            except Exception as e:
-                st.warning(f"Feature alignment warning for {name}: {e}")
-                
             yhat = xgb_model.predict(comp_df)
             if poly is not None:
                 yhat_poly = poly_model.predict(poly.transform(comp_df))
@@ -567,6 +567,9 @@ if compare:
             else:
                 yhat_linear = linear_model.predict(comp_df)
                 yhat = (yhat + yhat_linear) / 2
+                
+            # Ensure 1D array
+            yhat = yhat.ravel()
                 
             yhat *= (1 + macro_bias)
             if use_live_price:
@@ -587,14 +590,10 @@ if backtest_mode:
         try:
             # Use available_features instead of features
             backtest_features = [col for col in available_features if col in back_df.columns]
+            back_df = back_df[backtest_features]
             
-            # FIX: Align feature names for backtesting
-            try:
-                model_feature_names = xgb_model.get_booster().feature_names
-                back_df = back_df[model_feature_names]
-            except Exception as e:
-                st.warning(f"Backtest feature alignment warning: {e}")
-                back_df = back_df[backtest_features]
+            # FIX 7: Clean column names for backtesting
+            back_df.columns = [col.strip() for col in back_df.columns]
             
             back_df['Prediction'] = xgb_model.predict(back_df)
             
@@ -633,17 +632,18 @@ if st.checkbox("Show Feature Importance"):
 st.subheader("📥 Download Forecast Data")
 forecast_df = future_df.copy()
 
-# FIX 4: Handle column names consistently
+# FIX 8: Clean column names for download
 forecast_df.columns = [col.strip() for col in forecast_df.columns]
 
-# FIX 5: Ensure forecast is properly shaped
-forecast_df['Forecast'] = forecast.ravel()
+forecast_df['Forecast'] = forecast
 forecast_df['Date'] = future_dates
 forecast_df.set_index('Date', inplace=True)
 st.download_button("Download Forecast CSV", forecast_df.to_csv().encode(), file_name="qqq_forecast.csv")
+
 # Download Technical Indicators
 if show_tech:
     tech_cols = ['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
+    tech_cols = [col.strip() for col in tech_cols]
     tech_cols = [col for col in tech_cols if col in qqq_data.columns]
     if tech_cols:
         tech_df = qqq_data[tech_cols].dropna()
