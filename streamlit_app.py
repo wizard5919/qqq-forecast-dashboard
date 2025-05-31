@@ -32,8 +32,9 @@ def fetch_data(ticker, start_date):
     """Fetch data for a given ticker using yfinance."""
     try:
         df = yf.download(ticker, start=start_date, progress=False)
+        # Handle MultiIndex columns by flattening to single level
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns]
+            df.columns = ['_'.join(col).strip() for col in df.columns.values]
         return df
     except Exception as e:
         st.error(f"Error fetching data for {ticker}: {e}")
@@ -47,18 +48,22 @@ def add_technical_indicators(df):
     required_cols = ['Close', 'High', 'Low', 'Volume']
     if not all(col in df.columns for col in required_cols):
         df = yf.download("QQQ", start=df.index[0], end=df.index[-1], progress=False)
+        # Handle MultiIndex columns
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns]
+            df.columns = ['_'.join(col).strip() for col in df.columns.values]
 
+    # Calculate indicators
     df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
     df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    
     df['Typical_Price'] = (df['High'] + df['Low'] + df['Close']) / 3
     df['Price_x_Volume'] = df['Typical_Price'] * df['Volume']
     df['Cumulative_Price_Volume'] = df['Price_x_Volume'].cumsum()
     df['Cumulative_Volume'] = df['Volume'].cumsum()
     df['VWAP'] = df['Cumulative_Price_Volume'] / df['Cumulative_Volume']
+    
     df['KC_Middle'] = df['Close'].ewm(span=20, adjust=False).mean()
     tr = pd.DataFrame()
     tr['h_l'] = df['High'] - df['Low']
@@ -66,10 +71,15 @@ def add_technical_indicators(df):
     tr['l_pc'] = abs(df['Low'] - df['Close'].shift())
     df['TR'] = tr[['h_l', 'h_pc', 'l_pc']].max(axis=1)
     df['ATR'] = df['TR'].ewm(span=20, adjust=False).mean()
+    
     k_mult = 2
     df['KC_Upper'] = df['KC_Middle'] + k_mult * df['ATR']
     df['KC_Lower'] = df['KC_Middle'] - k_mult * df['ATR']
-    df = df.drop(['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 'Cumulative_Volume', 'TR', 'ATR'], axis=1, errors='ignore')
+    
+    # Cleanup temporary columns
+    cols_to_drop = ['Typical_Price', 'Price_x_Volume', 'Cumulative_Price_Volume', 
+                   'Cumulative_Volume', 'TR', 'ATR']
+    df = df.drop([col for col in cols_to_drop if col in df.columns], axis=1)
     return df
 
 def train_model(X, y):
@@ -92,8 +102,9 @@ def load_data_and_models():
     try:
         start_date = "2018-01-01"
         qqq = yf.download("QQQ", start=start_date, progress=False)
+        # Handle MultiIndex columns
         if isinstance(qqq.columns, pd.MultiIndex):
-            qqq.columns = [col[0] for col in qqq.columns]
+            qqq.columns = ['_'.join(col).strip() for col in qqq.columns.values]
 
         vix = fetch_data("^VIX", start_date)
         treasury10 = fetch_data("^TNX", start_date)
@@ -102,6 +113,7 @@ def load_data_and_models():
         if any(df is None for df in [qqq, vix, treasury10, treasury2]):
             return None, None, None, None, None
 
+        # Forward fill and reindex
         vix = vix['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
         treasury10 = treasury10['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
         treasury2 = treasury2['Close'].squeeze().reindex(qqq.index, method='ffill').ffill()
@@ -131,8 +143,9 @@ def load_data_and_models():
         X = X.dropna()
         y = y.loc[X.index]
 
-        # Fix MultiIndex issue
-        X.columns = ['_'.join(map(str, col)).strip() for col in X.columns] if isinstance(X.columns, pd.MultiIndex) else X.columns.astype(str).str.strip()
+        # Handle column names safely
+        X.columns = ['_'.join(map(str, col)).strip() if isinstance(col, tuple) 
+                    else str(col).strip() for col in X.columns]
 
         model_xgb = train_model(X, y)
         if model_xgb is None:
@@ -147,6 +160,7 @@ def load_data_and_models():
     except Exception as e:
         st.error(f"Error in load_data_and_models: {e}")
         return None, None, None, None, None
+
 # Load model and data
 qqq_data, xgb_model, linear_model, poly_model, poly = load_data_and_models()
 
@@ -157,8 +171,12 @@ if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, poly])
 st.title("📈 QQQ Forecast Simulator")
 
 # User inputs
-latest_close = qqq_data['Close'].iloc[-1]
-use_live_price = st.checkbox("📡 Use Live QQQ Close ($%.2f) as Starting Point" % latest_close, value=True)
+latest_close = qqq_data['Close'].iloc[-1] if 'Close' in qqq_data.columns else None
+if latest_close is None:
+    st.error("Close price not found in data")
+    st.stop()
+
+use_live_price = st.checkbox(f"📡 Use Live QQQ Close (${latest_close:.2f}) as Starting Point", value=True)
 horizon = st.selectbox("📆 Forecast Horizon (days)", [30, 60, 90], index=[30, 60, 90].index(st.session_state.horizon))
 show_tech = st.checkbox("📊 Show Technical Indicators")
 macro_bias = st.slider("🧠 Macro News Sentiment Overlay (-10% to +10%)", -0.10, 0.10, st.session_state.macro_bias, step=0.01)
@@ -249,16 +267,29 @@ fig.add_trace(go.Scatter(x=future_dates, y=forecast_upper, name="Upper Bound", l
 fig.add_trace(go.Scatter(x=future_dates, y=forecast_lower, name="Lower Bound", fill='tonexty', line=dict(color='lightblue'), fillcolor='rgba(173, 216, 230, 0.3)', showlegend=False))
 
 if show_tech:
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['EMA_9'], name="EMA 9", line=dict(dash='dot', color='purple')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['EMA_20'], name="EMA 20", line=dict(dash='dot', color='green')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['EMA_50'], name="EMA 50", line=dict(dash='dash', color='red')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['EMA_200'], name="EMA 200", line=dict(dash='dash', color='blue')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['VWAP'], name="VWAP", line=dict(dash='solid', color='orange')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['KC_Upper'], name="KC Upper", line=dict(color='gray')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['KC_Lower'], name="KC Lower", line=dict(color='gray')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['KC_Middle'], name="KC Middle", line=dict(dash='dot', color='gray')))
-    fig.add_trace(go.Scatter(x=qqq_data.index, y=qqq_data['Volatility'], name="Volatility", yaxis="y2", line=dict(color='orange')))
-    fig.update_layout(yaxis2=dict(title="Volatility", overlaying='y', side='right'))
+    tech_cols = ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
+    colors = ['purple', 'green', 'red', 'blue', 'orange', 'gray', 'gray', 'gray', 'orange']
+    styles = ['dot', 'dot', 'dash', 'dash', 'solid', 'solid', 'solid', 'dot', 'solid']
+    
+    for col, color, style in zip(tech_cols, colors, styles):
+        if col in qqq_data.columns:
+            if col == 'Volatility':
+                fig.add_trace(go.Scatter(
+                    x=qqq_data.index, 
+                    y=qqq_data[col], 
+                    name=col, 
+                    yaxis="y2", 
+                    line=dict(color=color, dash=style)
+                )
+            else:
+                fig.add_trace(go.Scatter(
+                    x=qqq_data.index, 
+                    y=qqq_data[col], 
+                    name=col, 
+                    line=dict(color=color, dash=style))
+    
+    if 'Volatility' in qqq_data.columns:
+        fig.update_layout(yaxis2=dict(title="Volatility", overlaying='y', side='right'))
 
 fig.update_layout(title="QQQ Price Forecast", xaxis_title="Date", yaxis_title="Price", template="plotly_white")
 st.plotly_chart(fig, use_container_width=True)
@@ -333,6 +364,7 @@ if backtest_mode:
     back_df = qqq_data.loc[qqq_data.index >= pd.to_datetime(backtest_date)].copy()
     if not back_df.empty:
         try:
+            features = [col for col in features if col in back_df.columns]
             back_df['Prediction'] = xgb_model.predict(back_df[features])
             back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df[features]))
             back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
@@ -370,8 +402,11 @@ st.download_button("Download Forecast CSV", forecast_df.to_csv().encode(), file_
 
 # Download Technical Indicators
 if show_tech:
-    tech_df = qqq_data[['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']].dropna()
-    st.download_button("Download Technical Indicators CSV", tech_df.to_csv().encode(), file_name="technical_indicators.csv")
+    tech_cols = ['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
+    tech_cols = [col for col in tech_cols if col in qqq_data.columns]
+    if tech_cols:
+        tech_df = qqq_data[tech_cols].dropna()
+        st.download_button("Download Technical Indicators CSV", tech_df.to_csv().encode(), file_name="technical_indicators.csv")
 
 # Download Forecast Chart
 buf = io.BytesIO()
