@@ -147,7 +147,6 @@ def load_data_and_models():
     except Exception as e:
         st.error(f"Error in load_data_and_models: {e}")
         return None, None, None, None, None
-
 # Load model and data
 qqq_data, xgb_model, linear_model, poly_model, poly = load_data_and_models()
 
