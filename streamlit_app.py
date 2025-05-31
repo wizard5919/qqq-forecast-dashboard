@@ -38,6 +38,10 @@ available_features = None
 latest_close = 400.0
 
 
+# Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
+
+# Updated fetch_data function to handle MultiIndex columns and ensure correct formatting
+
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     max_retries = 5
@@ -99,8 +103,21 @@ def normalize_columns(df):
     return df
 
 # Call these inside load_data_and_models(), right after each fetch_data call
-# For example:
-# qqq = normalize_columns(fetch_data("QQQ", start_date))
+def load_data_and_models():
+    start_date = "2018-01-01"
+
+    qqq = normalize_columns(fetch_data("QQQ", start_date))
+    vix = normalize_columns(fetch_data("^VIX", start_date))
+    treasury10 = normalize_columns(fetch_data("^TNX", start_date))
+    treasury2 = normalize_columns(fetch_data("^IRX", start_date))
+
+    return qqq, vix, treasury10, treasury2
+# Replace all other calls to fetch_data(..., start_date) outside this function
+# Only use the unified call: load_data_and_models()
+
+# Example:
+# qqq, vix, treasury10, treasury2 = load_data_and_models()
+
 # vix = normalize_columns(fetch_data("^VIX", start_date))
 # etc.
 # Do NOT call outside of function scope
@@ -124,6 +141,7 @@ def safe_feature_subset(df, feature_list):
 # back_df = safe_feature_subset(back_df, available_features)
 
 # This ensures robust feature alignment across all DataFrames
+
 
 def add_technical_indicators(df):
     df = df.copy()
