@@ -269,7 +269,7 @@ fig.add_trace(go.Scatter(x=future_dates, y=forecast_lower, name="Lower Bound", f
 if show_tech:
     tech_cols = ['EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
     colors = ['purple', 'green', 'red', 'blue', 'orange', 'gray', 'gray', 'gray', 'orange']
-    styles = ['dot', 'dot', 'dash', 'dash', 'solid', 'solid', 'solid', 'dot', 'solid']
+    styles = ['dot', 'dot', 'dash', 'dash', 'solid', 'solid', 'solid', 'solid', 'solid']
     
     for col, color, style in zip(tech_cols, colors, styles):
         if col in qqq_data.columns:
