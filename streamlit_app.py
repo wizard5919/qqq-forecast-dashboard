@@ -124,8 +124,14 @@ def load_data_and_models():
 # etc.
 # Do NOT call outside of function scope
 
-# --- Feature Subsetting Helper ---
 def safe_feature_subset(df, feature_list):
+    if df is None or feature_list is None:
+        st.error("❌ safe_feature_subset: Input DataFrame or feature list is None.")
+        return pd.DataFrame()
+    if not hasattr(df, 'columns'):
+        st.error("❌ safe_feature_subset: Input is not a valid DataFrame.")
+        return pd.DataFrame()
+
     existing = [f for f in feature_list if f in df.columns]
     missing = [f for f in feature_list if f not in df.columns]
     if missing:
