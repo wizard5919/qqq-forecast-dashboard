@@ -37,6 +37,7 @@ poly = None
 available_features = None
 latest_close = 400.0
 
+
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
     max_retries = 5
@@ -51,7 +52,7 @@ def fetch_data(ticker, start_date):
                     df.columns = [col[0] for col in df.columns]
                 else:
                     df.columns = [str(col).strip().title() for col in df.columns]
-                
+
                 df.columns = [str(col).strip().title() for col in df.columns]  # Normalize again after flattening
                 missing_required = [col for col in expected_columns if col not in df.columns]
                 if not missing_required:
@@ -90,6 +91,39 @@ def fetch_data(ticker, start_date):
 # vix.columns = [str(col).strip().title() for col in vix.columns]
 # treasury10.columns = [str(col).strip().title() for col in treasury10.columns]
 # treasury2.columns = [str(col).strip().title() for col in treasury2.columns]
+
+# --- Load Data Normalization ---
+def normalize_columns(df):
+    if df is not None:
+        df.columns = [str(col).strip().title() for col in df.columns]
+    return df
+
+# Call these inside load_data_and_models(), right after each fetch_data call
+# For example:
+# qqq = normalize_columns(fetch_data("QQQ", start_date))
+# vix = normalize_columns(fetch_data("^VIX", start_date))
+# etc.
+# Do NOT call outside of function scope
+
+# --- Feature Subsetting Helper ---
+def safe_feature_subset(df, feature_list):
+    existing = [f for f in feature_list if f in df.columns]
+    missing = [f for f in feature_list if f not in df.columns]
+    if missing:
+        st.warning(f"Missing features: {missing}")
+    return df[existing].copy()
+
+# Example usage (replace):
+# X = qqq_data[available_features].copy()
+# With:
+# X = safe_feature_subset(qqq_data, available_features)
+
+# Apply this also to:
+# future_df = safe_feature_subset(future_df, available_features)
+# comp_df = safe_feature_subset(comp_df, available_features)
+# back_df = safe_feature_subset(back_df, available_features)
+
+# This ensures robust feature alignment across all DataFrames
 
 def add_technical_indicators(df):
     df = df.copy()
