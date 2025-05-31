@@ -163,12 +163,25 @@ def load_data_and_models():
                 'Adj Close': np.linspace(100, 500, len(dates))
             }, index=dates)
         
+        # Handle multi-level columns
+        if isinstance(qqq.columns, pd.MultiIndex):
+            # Convert multi-level columns to single-level by joining with underscores
+            qqq.columns = ['_'.join(map(str, col)).strip() if isinstance(col, tuple) else str(col).strip() for col in qqq.columns]
+        else:
+            # Ensure all column names are strings and strip whitespace
+            qqq.columns = [str(col).strip() for col in qqq.columns]
+        
         # Fetch other data with fallbacks
         def get_data_with_fallback(ticker, fallback_value, name):
             data = fetch_data(ticker, start_date)
             if data is None or data.empty or 'Close' not in data.columns:
                 st.warning(f"⚠️ Using fallback value for {name}")
                 return pd.Series(fallback_value, index=qqq.index, name='Close')
+            # Handle multi-level columns for other data
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = ['_'.join(map(str, col)).strip() if isinstance(col, tuple) else str(col).strip() for col in data.columns]
+            else:
+                data.columns = [str(col).strip() for col in data.columns]
             return data['Close'].squeeze().reindex(qqq.index, method='ffill').ffill().bfill()
         
         vix = get_data_with_fallback("^VIX", 20.0, "VIX")
@@ -214,17 +227,16 @@ def load_data_and_models():
             if col in qqq.columns:
                 available_features.append(col)
 
-        # FIX 1: Clean feature names by stripping spaces
-        qqq.columns = [col.strip() for col in qqq.columns]
-        available_features = [col.strip() for col in available_features]
+        # Ensure feature names are strings and stripped
+        available_features = [str(col).strip() for col in available_features]
         
         X = qqq[available_features].copy()
         y = qqq['Close']
         X = X.dropna()
         y = y.loc[X.index]
 
-        # FIX 2: Ensure consistent feature names
-        X.columns = [col.strip() for col in X.columns]
+        # Ensure X column names are strings
+        X.columns = [str(col).strip() for col in X.columns]
 
         # Train models
         model_xgb = train_model(X, y)
@@ -306,14 +318,16 @@ if result is None or any(x is None for x in [qqq_data, xgb_model, linear_model, 
     qqq_data['Sentiment'] = 70
     qqq_data['Volatility'] = qqq_data['Close'].rolling(window=20).std().fillna(0)
     
+    # Ensure column names are strings
+    qqq_data.columns = [str(col).strip() for col in qqq_data.columns]
+    
     # Define essential features
     available_features = ['Date_Ordinal', 'FedFunds', 'Unemployment', 'CPI', 'GDP', 'VIX',
                          '10Y_Yield', '2Y_Yield', 'Yield_Spread', 'EPS_Growth', 'Sentiment',
                          'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle']
     
-    # FIX 3: Clean feature names in synthetic data
-    qqq_data.columns = [col.strip() for col in qqq_data.columns]
-    available_features = [col.strip() for col in available_features]
+    # Ensure feature names are strings
+    available_features = [str(col).strip() for col in available_features]
     
     # Create simple linear models as fallback
     X = qqq_data[available_features].copy()
@@ -414,14 +428,13 @@ try:
             if col in qqq_data.columns:
                 future_df[col] = qqq_data[col].iloc[-1]
             else:
-                # If missing, use a reasonable default
                 future_df[col] = latest_close
 
     # Reorder columns to match training data
     future_df = future_df[available_features]
     
-    # FIX 4: Clean feature names and align with model
-    future_df.columns = [col.strip() for col in future_df.columns]
+    # Ensure column names are strings
+    future_df.columns = [str(col).strip() for col in future_df.columns]
     
     # Make predictions
     # Use XGBoost for main forecast
@@ -438,7 +451,7 @@ try:
         forecast_linear = linear_model.predict(future_df)
         forecast = (forecast + forecast_linear) / 2
         
-    # FIX 5: Ensure forecast is 1D array
+    # Ensure forecast is 1D array
     forecast = forecast.ravel()
         
     forecast *= (1 + macro_bias)
@@ -556,8 +569,8 @@ if compare:
         
         comp_df = comp_df[available_features]
         
-        # FIX 6: Clean column names for scenarios
-        comp_df.columns = [col.strip() for col in comp_df.columns]
+        # Ensure column names are strings
+        comp_df.columns = [str(col).strip() for col in comp_df.columns]
         
         try:
             yhat = xgb_model.predict(comp_df)
@@ -592,8 +605,8 @@ if backtest_mode:
             backtest_features = [col for col in available_features if col in back_df.columns]
             back_df = back_df[backtest_features]
             
-            # FIX 7: Clean column names for backtesting
-            back_df.columns = [col.strip() for col in back_df.columns]
+            # Ensure column names are strings
+            back_df.columns = [str(col).strip() for col in back_df.columns]
             
             back_df['Prediction'] = xgb_model.predict(back_df)
             
@@ -632,8 +645,8 @@ if st.checkbox("Show Feature Importance"):
 st.subheader("📥 Download Forecast Data")
 forecast_df = future_df.copy()
 
-# FIX 8: Clean column names for download
-forecast_df.columns = [col.strip() for col in forecast_df.columns]
+# Ensure column names are strings
+forecast_df.columns = [str(col).strip() for col in forecast_df.columns]
 
 forecast_df['Forecast'] = forecast
 forecast_df['Date'] = future_dates
@@ -643,7 +656,7 @@ st.download_button("Download Forecast CSV", forecast_df.to_csv().encode(), file_
 # Download Technical Indicators
 if show_tech:
     tech_cols = ['Close', 'EMA_9', 'EMA_20', 'EMA_50', 'EMA_200', 'VWAP', 'KC_Upper', 'KC_Lower', 'KC_Middle', 'Volatility']
-    tech_cols = [col.strip() for col in tech_cols]
+    tech_cols = [str(col).strip() for col in tech_cols]
     tech_cols = [col for col in tech_cols if col in qqq_data.columns]
     if tech_cols:
         tech_df = qqq_data[tech_cols].dropna()
