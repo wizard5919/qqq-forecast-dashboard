@@ -8,3 +8,8 @@ plotly==6.1.2
 matplotlib==3.9.2
 requests==2.32.3
 joblib==1.4.2
+prophet==1.1.6
+tensorflow==2.17.0
+fredapi==0.5.2
+shap==0.46.0
+streamlit-option-menu==0.3.13
