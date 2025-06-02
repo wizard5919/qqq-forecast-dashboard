@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -776,11 +777,15 @@ elif st.session_state.active_tab == "Portfolio Impact":
                     continue
     
     if portfolio:
-        if 'forecast' not in globals():
+        if 'forecast' not in st.session_state:
             st.warning("Please generate a forecast first on the Forecast tab")
-        else:
+    else:
+            forecast = st.session_state.forecast
             result = portfolio_impact(forecast, portfolio)
             if result:
+
+        # existing UI code here...
+
                 st.subheader("Portfolio Impact Summary")
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Current Value", f"${result['current_total']:,.2f}")
@@ -798,58 +803,5 @@ elif st.session_state.active_tab == "Portfolio Impact":
                     'Change': '${:,.2f}',
                     'Change %': '{:.2f}%'
                 }))
-    else:
-        st.warning("Please enter a valid portfolio")
-
-elif st.session_state.active_tab == "Economic Calendar":
-    st.header("📅 Economic Calendar")
-    st.info("Upcoming economic events that may impact markets")
-    
-    with st.spinner("Loading economic calendar..."):
-        calendar = get_economic_calendar()
-    
-    if not calendar.empty:
-        grouped = calendar.groupby('Date')
-        for date, group in grouped:
-            with st.expander(f"🗓️ {date}"):
-                for _, row in group.iterrows():
-                    st.markdown(f"**{row['Event']}**")
-                    st.caption(f"Importance: {row['Importance']}")
-    else:
-        st.warning("No upcoming economic events found")
-
-elif st.session_state.active_tab == "Model Explainability":
-    st.header("🔍 Model Explainability (SHAP)")
-    if shap_explainer is None:
-        st.warning("SHAP explainer not available for current model")
-    else:
-        st.info("SHAP values show how each feature impacts the forecast")
-        if 'X' in globals() and X is not None:
-            fig = generate_shap_plot(xgb_model, X)
-            if fig:
-                st.pyplot(fig)
-            else:
-                st.warning("Could not generate SHAP plot")
-        else:
-            st.warning("Feature data not available")
-        
-        st.subheader("Feature Descriptions")
-        feature_descriptions = {
-            'Date_Ordinal': 'Date in ordinal format',
-            'Fedfunds': 'Federal funds rate',
-            'Unemployment': 'Unemployment rate',
-            'Cpi': 'Consumer Price Index',
-            'Gdp': 'Gross Domestic Product',
-            'Vix': 'Volatility Index (VIX)',
-            '10Y_Yield': '10-Year Treasury yield',
-            '2Y_Yield': '2-Year Treasury yield',
-            'Yield_Spread': 'Difference between 10Y and 2Y yields',
-            'Eps_Growth': 'Corporate earnings growth',
-            'Sentiment': 'Market sentiment index',
-            'Volatility': 'Price volatility',
-            'Ma_20': '20-day moving average',
-            'Ma_50': '50-day moving average'
-        }
-        for feature in available_features:
-            desc = feature_descriptions.get(feature, "No description available")
-            st.markdown(f"**{feature}**: {desc}")
+else:
+        st.warning("Please enter a valid portfolio") 
