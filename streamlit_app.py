@@ -15,8 +15,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import os
 import shap
 from prophet import Prophet
-from keras.models import Sequential
-from keras.layers import LSTM, Dense
 from fredapi import Fred
 from streamlit_option_menu import option_menu
 
