@@ -34,4 +34,3 @@ This Streamlit app forecasts QQQ ETF prices using macroeconomic assumptions and 
 
 ## Requirements
 See `requirements.txt` for dependencies, including `streamlit`, `pandas`, `yfinance`, `xgboost`, `scikit-learn`, and `plotly`.
->>>>>>> 23102dcae7169b96d5a6bd96f073ff594a9745cd
