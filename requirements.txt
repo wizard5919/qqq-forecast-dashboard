@@ -1,3 +1,4 @@
+# Updated requirements.txt
 streamlit==1.45.1
 pandas==2.2.3
 numpy==1.26.4
@@ -12,5 +13,4 @@ prophet==1.1.6
 shap==0.45.0
 fredapi==0.5.0
 streamlit-option-menu==0.3.6
-tensorflow==2.16.1
-
+tensorflow-cpu==2.16.1  # Use CPU-only version to reduce size
