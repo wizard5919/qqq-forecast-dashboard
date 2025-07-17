@@ -17,6 +17,8 @@ import shap
 from prophet import Prophet
 from fredapi import Fred
 from streamlit_option_menu import option_menu
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 
 st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide", initial_sidebar_state="expanded")
 
@@ -37,9 +39,8 @@ if 'fed' not in st.session_state:
     st.session_state.active_tab = "Forecast"
 
 # FRED API setup (replace with your actual key)
-FRED_API_KEY = "YOUR_FRED_API_KEY"
+FRED_API_KEY = "YOUR_FRED_API_KEY"  # Get from https://fred.stlouisfed.org/docs/api/api_key.html
 fred = Fred(api_key=FRED_API_KEY)
-
 # Global variables
 qqq_data = None
 xgb_model = None
@@ -774,32 +775,29 @@ elif st.session_state.active_tab == "Portfolio Impact":
                 except:
                     continue
     
-    if portfolio:
-        if 'forecast' not in st.session_state:
-            st.warning("Please generate a forecast first on the Forecast tab")
+    if not portfolio:
+        st.warning("Please enter a valid portfolio")
+    elif 'forecast' not in st.session_state:
+        st.warning("Please generate a forecast first on the Forecast tab")
     else:
-            forecast = st.session_state.forecast
-            result = portfolio_impact(forecast, portfolio)
-            if result:
-
-        # existing UI code here...
-
-                st.subheader("Portfolio Impact Summary")
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Current Value", f"${result['current_total']:,.2f}")
-                col2.metric("Forecast Value", f"${result['forecast_total']:,.2f}", 
-                           delta=f"{result['total_change_pct']:.2f}%")
-                col3.metric("Projected Change", f"${result['total_change']:,.2f}",
-                           delta_color="inverse" if result['total_change'] < 0 else "normal")
-                
-                st.subheader("Holding Details")
-                st.dataframe(result['holdings'].style.format({
-                    'Current Price': '${:,.2f}',
-                    'Current Value': '${:,.2f}',
-                    'Forecast Price': '${:,.2f}',
-                    'Forecast Value': '${:,.2f}',
-                    'Change': '${:,.2f}',
-                    'Change %': '{:.2f}%'
-                }))
-else:
-        st.warning("Please enter a valid portfolio") 
+        result = portfolio_impact(st.session_state.forecast, portfolio)
+        if result:
+            st.subheader("Portfolio Impact Summary")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Current Value", f"${result['current_total']:,.2f}")
+            col2.metric("Forecast Value", f"${result['forecast_total']:,.2f}", 
+                       delta=f"{result['total_change_pct']:.2f}%")
+            col3.metric("Projected Change", f"${result['total_change']:,.2f}",
+                       delta_color="inverse" if result['total_change'] < 0 else "normal")
+            
+            st.subheader("Holding Details")
+            st.dataframe(result['holdings'].style.format({
+                'Current Price': '${:,.2f}',
+                'Current Value': '${:,.2f}',
+                'Forecast Price': '${:,.2f}',
+                'Forecast Value': '${:,.2f}',
+                'Change': '${:,.2f}',
+                'Change %': '{:.2f}%'
+            }))
+        else:
+            st.error("Failed to calculate portfolio impact")
