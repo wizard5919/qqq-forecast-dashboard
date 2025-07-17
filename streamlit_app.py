@@ -171,8 +171,12 @@ def train_model(X, y):
         return None
 
 def create_lstm_model(X_train, y_train):
-    """Create and train LSTM model"""
     try:
+        # Add this check for small datasets
+        if len(X_train) < 50:
+            st.warning("Insufficient data for LSTM model")
+            return None
+            
         X_train_3d = X_train.values.reshape((X_train.shape[0], 1, X_train.shape[1]))
         model = Sequential()
         model.add(LSTM(50, activation='relu', input_shape=(1, X_train.shape[1])))
