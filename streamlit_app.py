@@ -341,11 +341,11 @@ def load_data_and_models():
 
         prophet_model = None
         try:
-            prophet_df = qqq.reset_index()[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
-            prophet_model = Prophet(daily_seasonality=False)
-            prophet_model.fit(prophet_df)
+    prophet_df = qqq.reset_index()[['index', 'Close']].rename(columns={'index': 'ds', 'Close': 'y'})
+    prophet_model = Prophet(daily_seasonality=False)
+    prophet_model.fit(prophet_df)
         except Exception as e:
-            st.error(f"Prophet model failed: {str(e)}")
+    st.error(f"Prophet model failed: {str(e)}")
 
         lstm_model = create_lstm_model(X, y)
         shap_explainer = None
