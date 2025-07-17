@@ -17,8 +17,16 @@ import shap
 from prophet import Prophet
 from fredapi import Fred
 from streamlit_option_menu import option_menu
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+
+# Fixed TensorFlow imports with try-except
+try:
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense
+except ImportError:
+    st.warning("TensorFlow import failed. LSTM features disabled.")
+    Sequential = None
+    LSTM = None
+    Dense = None
 
 st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide", initial_sidebar_state="expanded")
 
@@ -344,11 +352,11 @@ def load_data_and_models():
             model_poly = LinearRegression().fit(poly_features, y)
 
         prophet_model = None
-        try:
+       try:
     prophet_df = qqq.reset_index()[['index', 'Close']].rename(columns={'index': 'ds', 'Close': 'y'})
     prophet_model = Prophet(daily_seasonality=False)
     prophet_model.fit(prophet_df)
-        except Exception as e:
+except Exception as e:
     st.error(f"Prophet model failed: {str(e)}")
 
         lstm_model = create_lstm_model(X, y)
