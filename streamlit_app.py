@@ -98,11 +98,14 @@ def get_market_adjusted_price(base_price):
         logger.error(f"Time zone error: {e}. Falling back to local time.")
         now = datetime.now()  # Fallback to local time
     current_time = now.time()
-    if time(4, 0) <= current_time < time(9, 30):  # Pre-market
+    logger.debug(f"Current time: {current_time}")
+
+    # Use separate conditions for clarity
+    if current_time >= time(4, 0) and current_time < time(9, 30):  # Pre-market
         return base_price * 1.01
-    elif time(9, 30) <= current_time < time(16, 0):  # Market open
+    elif current_time >= time(9, 30) and current_time < time(16, 0):  # Market open
         return base_price
-    elif time(16, 0) <= current_time < time(20, 0):  # Post-market
+    elif current_time >= time(16, 0) and current_time < time(20, 0):  # Post-market
         return base_price * 0.99
     else:  # Outside trading hours
         return base_price
