@@ -91,8 +91,12 @@ shap_explainer = None
 
 def get_market_adjusted_price(base_price):
     """Adjust price based on market session"""
-    eastern = pytz.timezone('America/New York')
-    now = datetime.now(eastern)
+    try:
+        eastern = pytz.timezone('America/New York')
+        now = datetime.now(eastern)
+    except pytz.exceptions.UnknownTimeZoneError as e:
+        logger.error(f"Time zone error: {e}. Falling back to local time.")
+        now = datetime.now()  # Fallback to local time
     current_time = now.time()
     if time(4, 0) <= current_time < time(9, 30):  # Pre-market
         return base_price * 1.01
