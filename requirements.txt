@@ -1,6 +1,7 @@
+# Core dependencies
 streamlit==1.45.1
 pandas==2.2.3
-numpy>=2.0.0  # Compatible with Python 3.13
+numpy>=2.0.0
 yfinance==0.2.61
 xgboost==3.0.2
 scikit-learn==1.6.1
@@ -10,11 +11,19 @@ requests==2.32.3
 joblib==1.4.2
 fredapi==0.5.0
 streamlit-option-menu==0.3.6
-tensorflow>=2.19.0rc0 --pre
 
-# Prophet dependencies (critical for compatibility)
-pystan==2.19.1.1  # Required by fbprophet
+# TensorFlow with Python 3.12 compatibility
+tensorflow==2.16.1  # Last version with full 3.12 support
+
+# SHAP compatibility fix
+shap==0.44.0  # Downgraded for TF 2.16 compatibility
+
+# Prophet dependencies
+pystan==2.19.1.1
 holidays==0.45
 convertdate==2.4.0
 lunarcalendar==0.0.9
 cmdstanpy==1.2.0
+prophet==1.1.5  # Explicitly added prophet package
+
+# Python version specifier (create runtime.txt separately)
