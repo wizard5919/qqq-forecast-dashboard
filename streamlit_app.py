@@ -98,7 +98,12 @@ def get_market_adjusted_price(base_price):
         logger.error(f"Time zone error: {e}. Falling back to local time.")
         now = datetime.now()  # Fallback to local time
     current_time = now.time()
-    logger.debug(f"Current time: {current_time}")
+    logger.debug(f"Current time: {current_time}, Type: {type(current_time)}")
+
+    # Ensure current_time is a time object and handle comparison
+    if not isinstance(current_time, time):
+        logger.error(f"Invalid time object: {current_time}. Using default adjustment.")
+        return base_price  # Default to no adjustment if type is invalid
 
     # Use separate conditions for clarity
     if current_time >= time(4, 0) and current_time < time(9, 30):  # Pre-market
