@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -45,10 +44,12 @@ if 'fed' not in st.session_state:
     st.session_state.horizon = 30
     st.session_state.saved_scenarios = {}
     st.session_state.active_tab = "Forecast"
+    st.session_state.forecast = None
 
 # FRED API setup (replace with your actual key)
 FRED_API_KEY = "YOUR_FRED_API_KEY"  # Get from https://fred.stlouisfed.org/docs/api/api_key.html
-fred = Fred(api_key=FRED_API_KEY)
+fred = Fred(api_key=FRED_API_KEY) if FRED_API_KEY != "YOUR_FRED_API_KEY" else None
+
 # Global variables
 qqq_data = None
 xgb_model = None
@@ -199,6 +200,13 @@ def create_lstm_model(X_train, y_train):
 def get_economic_calendar():
     """Fetch upcoming economic events"""
     try:
+        if fred is None:
+            return pd.DataFrame({
+                'Date': [datetime.today().strftime('%Y-%m-%d')],
+                'Event': ['FRED API not configured'],
+                'Importance': ['Low']
+            })
+            
         releases = fred.releases()
         upcoming = pd.DataFrame()
         today = datetime.today()
@@ -231,8 +239,9 @@ def get_economic_calendar():
 def portfolio_impact(forecast_prices, portfolio):
     """Calculate portfolio impact based on forecast"""
     try:
-        if not portfolio:
+        if not portfolio or forecast_prices is None or len(forecast_prices) == 0:
             return None
+            
         results = []
         current_total = 0
         forecast_total = 0
@@ -351,13 +360,14 @@ def load_data_and_models():
             poly_features = poly_transformer.fit_transform(X)
             model_poly = LinearRegression().fit(poly_features, y)
 
+        # Prophet model training - FIXED INDENTATION
         prophet_model = None
-       try:
-    prophet_df = qqq.reset_index()[['index', 'Close']].rename(columns={'index': 'ds', 'Close': 'y'})
-    prophet_model = Prophet(daily_seasonality=False)
-    prophet_model.fit(prophet_df)
-except Exception as e:
-    st.error(f"Prophet model failed: {str(e)}")
+        try:
+            prophet_df = qqq.reset_index()[['index', 'Close']].rename(columns={'index': 'ds', 'Close': 'y'})
+            prophet_model = Prophet(daily_seasonality=False)
+            prophet_model.fit(prophet_df)
+        except Exception as e:
+            st.error(f"Prophet model failed: {str(e)}")
 
         lstm_model = create_lstm_model(X, y)
         shap_explainer = None
@@ -597,6 +607,9 @@ if st.session_state.active_tab == "Forecast":
     if use_live_price:
         shift = latest_close - forecast[0]
         forecast += shift
+    
+    # Store forecast for portfolio impact
+    st.session_state.forecast = forecast
 
     confidence_std = 0.03 * forecast
     forecast_upper = forecast + confidence_std
@@ -789,7 +802,7 @@ elif st.session_state.active_tab == "Portfolio Impact":
     
     if not portfolio:
         st.warning("Please enter a valid portfolio")
-    elif 'forecast' not in st.session_state:
+    elif st.session_state.forecast is None:
         st.warning("Please generate a forecast first on the Forecast tab")
     else:
         result = portfolio_impact(st.session_state.forecast, portfolio)
@@ -813,3 +826,44 @@ elif st.session_state.active_tab == "Portfolio Impact":
             }))
         else:
             st.error("Failed to calculate portfolio impact")
+
+elif st.session_state.active_tab == "Economic Calendar":
+    st.header("📅 Economic Calendar")
+    st.info("Upcoming economic events that could impact QQQ")
+    
+    calendar = get_economic_calendar()
+    if not calendar.empty:
+        st.dataframe(calendar)
+    else:
+        st.warning("No upcoming economic events found")
+
+elif st.session_state.active_tab == "Model Explainability":
+    st.header("🔍 Model Explainability")
+    st.info("Understand how different factors impact the forecast")
+    
+    if shap_explainer is None:
+        st.warning("SHAP explainer not available")
+    else:
+        try:
+            # Get the last available data point
+            X_explain = safe_feature_subset(qqq_data, available_features).iloc[[-1]]
+            if not X_explain.empty:
+                fig = generate_shap_plot(xgb_model, X_explain)
+                if fig:
+                    st.pyplot(fig)
+                else:
+                    st.warning("Failed to generate SHAP plot")
+            else:
+                st.warning("No data available for explanation")
+        except Exception as e:
+            st.error(f"Explainability failed: {str(e)}")
+    
+    st.subheader("Model Interpretation")
+    st.markdown("""
+    - **Fed Funds Rate**: Higher rates typically pressure tech stocks
+    - **CPI**: High inflation may lead to Fed tightening
+    - **VIX**: Fear index, higher values indicate market stress
+    - **Yield Spread**: Inverted curve often signals recession
+    - **Sentiment**: Bullish sentiment supports tech stocks
+    - **Technical Indicators**: EMAs, VWAP show support/resistance levels
+    """)
