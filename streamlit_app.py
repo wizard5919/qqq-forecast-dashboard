@@ -92,7 +92,7 @@ shap_explainer = None
 def get_market_adjusted_price(base_price):
     """Adjust price based on market session"""
     try:
-        eastern = pytz.timezone('America/New York')
+        eastern = pytz.timezone('America/New_York')  # Corrected timezone name
         now = datetime.now(eastern)
     except pytz.exceptions.UnknownTimeZoneError as e:
         logger.error(f"Time zone error: {e}. Falling back to local time.")
@@ -100,17 +100,17 @@ def get_market_adjusted_price(base_price):
     current_time = now.time()
     logger.debug(f"Current time: {current_time}, Type: {type(current_time)}")
 
-    # Ensure current_time is a time object and handle comparison
-    if not isinstance(current_time, time):
+    # Ensure current_time is a datetime.time object and handle comparison
+    if not isinstance(current_time, datetime.time):
         logger.error(f"Invalid time object: {current_time}. Using default adjustment.")
         return base_price  # Default to no adjustment if type is invalid
 
     # Use separate conditions for clarity
-    if current_time >= time(4, 0) and current_time < time(9, 30):  # Pre-market
+    if current_time >= datetime.time(4, 0) and current_time < datetime.time(9, 30):  # Pre-market
         return base_price * 1.01
-    elif current_time >= time(9, 30) and current_time < time(16, 0):  # Market open
+    elif current_time >= datetime.time(9, 30) and current_time < datetime.time(16, 0):  # Market open
         return base_price
-    elif current_time >= time(16, 0) and current_time < time(20, 0):  # Post-market
+    elif current_time >= datetime.time(16, 0) and current_time < datetime.time(20, 0):  # Post-market
         return base_price * 0.99
     else:  # Outside trading hours
         return base_price
