@@ -21,19 +21,45 @@ import shap
 from prophet import Prophet
 from streamlit_option_menu import option_menu
 
-# Initialize session state after set_page_config
+# FRED API setup (configure as environment variable in Streamlit Cloud)
+FRED_API_KEY = os.getenv("FRED_API_KEY", "YOUR_FRED_API_KEY")
+fred = Fred(api_key=FRED_API_KEY) if FRED_API_KEY != "YOUR_FRED_API_KEY" else None
+
+def fetch_economic_indicator(series_id, fallback_value):
+    """Fetch latest economic indicator value from FRED"""
+    try:
+        if fred is None:
+            return fallback_value
+        series = fred.get_series(series_id, observation_start='2025-01-01')
+        if not series.empty:
+            return float(series.iloc[-1])
+        return fallback_value
+    except Exception:
+        return fallback_value
+
+def fetch_yfinance_indicator(ticker, fallback_value):
+    """Fetch latest indicator value from yfinance"""
+    try:
+        data = yf.download(ticker, period="1d", progress=False)
+        if not data.empty and 'Close' in data.columns:
+            return float(data['Close'].iloc[-1])
+        return fallback_value
+    except Exception:
+        return fallback_value
+
+# Initialize session state with latest economic indicators
 def initialize_session_state():
-    """Initialize session state variables"""
+    """Initialize session state variables with latest economic indicators"""
     if 'fed' not in st.session_state:
-        st.session_state.fed = 5.25
-        st.session_state.cpi = 3.5
-        st.session_state.unemp = 3.9
-        st.session_state.gdp = 21000
-        st.session_state.vix = 20.0
-        st.session_state.yield_10 = 4.0
-        st.session_state.yield_2 = 3.5
-        st.session_state.eps = 10.0
-        st.session_state.sent = 70
+        st.session_state.fed = fetch_economic_indicator('FEDFUNDS', 5.25)
+        st.session_state.cpi = fetch_economic_indicator('CPIAUCSL', 3.5)
+        st.session_state.unemp = fetch_economic_indicator('UNRATE', 3.9)
+        st.session_state.gdp = fetch_economic_indicator('GDP', 21000)
+        st.session_state.vix = fetch_yfinance_indicator('^VIX', 20.0)
+        st.session_state.yield_10 = fetch_yfinance_indicator('^TNX', 4.0)
+        st.session_state.yield_2 = fetch_yfinance_indicator('^IRX', 3.5)
+        st.session_state.eps = 10.0  # Estimated EPS growth, adjustable in UI
+        st.session_state.sent = 70    # Neutral sentiment, adjustable in UI
         st.session_state.macro_bias = 0.0
         st.session_state.horizon = 30
         st.session_state.saved_scenarios = {}
@@ -42,10 +68,6 @@ def initialize_session_state():
 
 # Call session state initialization
 initialize_session_state()
-
-# FRED API setup (configure as environment variable in Streamlit Cloud)
-FRED_API_KEY = os.getenv("FRED_API_KEY", "YOUR_FRED_API_KEY")
-fred = Fred(api_key=FRED_API_KEY) if FRED_API_KEY != "YOUR_FRED_API_KEY" else None
 
 # Global variables
 qqq_data = None
@@ -293,22 +315,22 @@ def load_data_and_models():
                 return pd.Series(fallback_value, index=qqq.index, name='Close')
             return data['Close'].squeeze().reindex(qqq.index, method='ffill').ffill().bfill()
         
-        vix = get_data_with_fallback("^VIX", 20.0)
-        treasury10 = get_data_with_fallback("^TNX", 4.0)
-        treasury2 = get_data_with_fallback("^IRX", 3.5)
+        vix = get_data_with_fallback("^VIX", st.session_state.vix)
+        treasury10 = get_data_with_fallback("^TNX", st.session_state.yield_10)
+        treasury2 = get_data_with_fallback("^IRX", st.session_state.yield_2)
         qqq = add_technical_indicators(qqq)
         
         qqq['Date_Ordinal'] = qqq.index.map(datetime.toordinal)
-        qqq['Fedfunds'] = 5.25
-        qqq['Unemployment'] = 3.9
-        qqq['Cpi'] = 3.5
-        qqq['Gdp'] = 21000
+        qqq['Fedfunds'] = st.session_state.fed
+        qqq['Unemployment'] = st.session_state.unemp
+        qqq['Cpi'] = st.session_state.cpi
+        qqq['Gdp'] = st.session_state.gdp
         qqq['Vix'] = vix
         qqq['10Y_Yield'] = treasury10
         qqq['2Y_Yield'] = treasury2
         qqq['Yield_Spread'] = treasury10 - treasury2
-        qqq['Eps_Growth'] = np.linspace(5, 15, len(qqq))
-        qqq['Sentiment'] = 70
+        qqq['Eps_Growth'] = st.session_state.eps
+        qqq['Sentiment'] = st.session_state.sent
         qqq['Ma_20'] = qqq['Close'].rolling(window=20).mean()
         qqq['Ma_50'] = qqq['Close'].rolling(window=50).mean()
         qqq['Volatility'] = qqq['Close'].rolling(window=20).std()
@@ -376,16 +398,16 @@ if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, availa
     
     qqq_data = add_technical_indicators(qqq_data)
     qqq_data['Date_Ordinal'] = qqq_data.index.map(datetime.toordinal)
-    qqq_data['Fedfunds'] = 5.25
-    qqq_data['Unemployment'] = 3.9
-    qqq_data['Cpi'] = 3.5
-    qqq_data['Gdp'] = 21000
-    qqq_data['Vix'] = 20.0
-    qqq_data['10Y_Yield'] = 4.0
-    qqq_data['2Y_Yield'] = 3.5
+    qqq_data['Fedfunds'] = st.session_state.fed
+    qqq_data['Unemployment'] = st.session_state.unemp
+    qqq_data['Cpi'] = st.session_state.cpi
+    qqq_data['Gdp'] = st.session_state.gdp
+    qqq_data['Vix'] = st.session_state.vix
+    qqq_data['10Y_Yield'] = st.session_state.yield_10
+    qqq_data['2Y_Yield'] = st.session_state.yield_2
     qqq_data['Yield_Spread'] = qqq_data['10Y_Yield'] - qqq_data['2Y_Yield']
-    qqq_data['Eps_Growth'] = np.linspace(5, 15, len(qqq_data))
-    qqq_data['Sentiment'] = 70
+    qqq_data['Eps_Growth'] = st.session_state.eps
+    qqq_data['Sentiment'] = st.session_state.sent
     qqq_data['Volatility'] = qqq_data['Close'].rolling(window=20).std().fillna(0)
     qqq_data['Ma_20'] = qqq_data['Close'].rolling(window=20).mean()
     qqq_data['Ma_50'] = qqq_data['Close'].rolling(window=50).mean()
@@ -492,10 +514,10 @@ if st.session_state.active_tab == "Forecast":
     
     with sc_col1:
         if scenario == "Custom":
-            fed = st.number_input("Fed Funds Rate", value=st.session_state.fed, step=0.1)
-            cpi = st.number_input("CPI", value=st.session_state.cpi, step=0.1)
-            unemp = st.number_input("Unemployment", value=st.session_state.unemp, step=0.1)
-            gdp = st.number_input("GDP", value=st.session_state.gdp, step=1000)
+            fed = st.number_input("Fed Funds Rate (%)", value=st.session_state.fed, step=0.1)
+            cpi = st.number_input("CPI (%)", value=st.session_state.cpi, step=0.1)
+            unemp = st.number_input("Unemployment (%)", value=st.session_state.unemp, step=0.1)
+            gdp = st.number_input("GDP (Billions)", value=st.session_state.gdp, step=1000)
         else:
             s = scenarios[scenario]
             fed, cpi, unemp, gdp = s['fed'], s['cpi'], s['unemp'], s['gdp']
@@ -504,10 +526,10 @@ if st.session_state.active_tab == "Forecast":
     with sc_col2:
         if scenario == "Custom":
             vix = st.number_input("VIX", value=st.session_state.vix, step=1.0)
-            yield_10 = st.number_input("10Y Yield", value=st.session_state.yield_10, step=0.1)
-            yield_2 = st.number_input("2Y Yield", value=st.session_state.yield_2, step=0.1)
-            eps = st.number_input("EPS Growth", value=st.session_state.eps, step=0.5)
-            sent = st.slider("Sentiment", 0, 100, st.session_state.sent)
+            yield_10 = st.number_input("10Y Yield (%)", value=st.session_state.yield_10, step=0.1)
+            yield_2 = st.number_input("2Y Yield (%)", value=st.session_state.yield_2, step=0.1)
+            eps = st.number_input("EPS Growth (%)", value=st.session_state.eps, step=0.5)
+            sent = st.slider("Sentiment (0-100)", 0, 100, int(st.session_state.sent))
         else:
             s = scenarios[scenario]
             vix, yield_10, yield_2, eps, sent = s['vix'], s['yield_10'], s['yield_2'], s['eps'], s['sent']
