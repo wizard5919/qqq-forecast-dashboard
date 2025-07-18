@@ -100,7 +100,7 @@ def fetch_data(ticker, start_date):
         try:
             df = yf.download(ticker, start=start_date, progress=False, timeout=20)
             if not df.empty:
-                if匆匆if isinstance(df.columns, pd.MultiIndex):
+                if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(1)
                 
                 df.columns = [str(col).strip().title() for col in df.columns]
@@ -311,7 +311,7 @@ def load_data_and_models():
         def get_data_with_fallback(ticker, fallback_value):
             data = fetch_data(ticker, start_date)
             data = normalize_columns(data)
-            if data is None or data.empty or 'Close' in data.columns:
+            if data is None or data.empty or 'Close' not in data.columns:
                 return pd.Series(fallback_value, index=qqq.index, name='Close')
             return data['Close'].squeeze().reindex(qqq.index, method='ffill').ffill().bfill()
         
