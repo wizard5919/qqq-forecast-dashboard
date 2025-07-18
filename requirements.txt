@@ -13,4 +13,4 @@ streamlit-option-menu==0.3.6
 prophet==1.1.5
 shap==0.45.0
 fredapi
-pytz
+
