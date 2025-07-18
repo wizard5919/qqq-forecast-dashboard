@@ -1,6 +1,6 @@
 streamlit==1.45.1
 pandas==2.2.3
-numpy==1.26.4
+numpy>=2.0.0  # Compatible with Python 3.13
 yfinance==0.2.61
 xgboost==3.0.2
 scikit-learn==1.6.1
@@ -11,7 +11,7 @@ joblib==1.4.2
 shap==0.45.0
 fredapi==0.5.0
 streamlit-option-menu==0.3.6
-tensorflow==2.15.0  # Explicit version for Py3.11
+tensorflow>=2.16.0  # Versions 2.16+ support Python 3.13
 
 # Prophet dependencies (critical for compatibility)
 pystan==2.19.1.1  # Required by fbprophet
