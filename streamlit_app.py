@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time  # Import time here
 import yfinance as yf
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import xgboost as xgb
 import plotly.graph_objects as go
 import io
-import time
+import time as ttime
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import os
@@ -53,7 +53,7 @@ def fetch_yfinance_indicator(ticker, fallback_value):
                 return float(data['Close'].iloc[-1])
             return fallback_value
         except Exception:
-            time.sleep(retry_delay)
+            ttime.sleep(retry_delay)
     return fallback_value
 
 # Initialize session state with latest economic indicators
@@ -102,16 +102,16 @@ def get_market_adjusted_price(base_price):
     logger.debug(f"Current time: {current_time}, Type: {type(current_time)}")
 
     # Ensure current_time is a datetime.time object and handle comparison
-    if not isinstance(current_time, datetime.time):
+    if not isinstance(current_time, time):
         logger.error(f"Invalid time object: {current_time}. Using default adjustment.")
         return base_price  # Default to no adjustment if type is invalid
 
     # Use separate conditions for clarity
-    if current_time >= datetime.time(4, 0) and current_time < datetime.time(9, 30):  # Pre-market
+    if current_time >= time(4, 0) and current_time < time(9, 30):  # Pre-market
         return base_price * 1.01
-    elif current_time >= datetime.time(9, 30) and current_time < datetime.time(16, 0):  # Market open
+    elif current_time >= time(9, 30) and current_time < time(16, 0):  # Market open
         return base_price
-    elif current_time >= datetime.time(16, 0) and current_time < datetime.time(20, 0):  # Post-market
+    elif current_time >= time(16, 0) and current_time < time(20, 0):  # Post-market
         return base_price * 0.99
     else:  # Outside trading hours
         return base_price
@@ -148,9 +148,9 @@ def fetch_data(ticker, start_date):
                     except Exception:
                         pass
                     return df
-            time.sleep(retry_delay)
+            ttime.sleep(retry_delay)
         except Exception:
-            time.sleep(retry_delay)
+            ttime.sleep(retry_delay)
 
     # Fallback to synthetic data with updated latest close
     dates = pd.date_range(start=start_date, end=datetime.today())
