@@ -100,7 +100,7 @@ def fetch_data(ticker, start_date):
         try:
             df = yf.download(ticker, start=start_date, progress=False, timeout=20)
             if not df.empty:
-                if isinstance(df.columns, pd.MultiIndex):
+                if匆匆if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(1)
                 
                 df.columns = [str(col).strip().title() for col in df.columns]
@@ -311,7 +311,7 @@ def load_data_and_models():
         def get_data_with_fallback(ticker, fallback_value):
             data = fetch_data(ticker, start_date)
             data = normalize_columns(data)
-            if data is None or data.empty or 'Close' not in data.columns:
+            if data is None or data.empty or 'Close' in data.columns:
                 return pd.Series(fallback_value, index=qqq.index, name='Close')
             return data['Close'].squeeze().reindex(qqq.index, method='ffill').ffill().bfill()
         
@@ -727,9 +727,9 @@ if st.session_state.active_tab == "Forecast":
             back_df = safe_feature_subset(back_df, available_features)
             back_df['Prediction'] = xgb_model.predict(back_df)
             if poly is not None:
-                back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df))
+                back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df[available_features]))
             else:
-                back_df['Prediction_Poly'] = linear_model.predict(back_df)
+                back_df['Prediction_Poly'] = linear_model.predict(back_df[available_features])
             back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
             mae = mean_absolute_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction'])
             rmse = np.sqrt(mean_squared_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction']))
@@ -797,11 +797,16 @@ elif st.session_state.active_tab == "Portfolio Impact":
         if result:
             st.subheader("Portfolio Impact Summary")
             col1, col2, col3 = st.columns(3)
-            col1.metric("Current Value", f"${result['current_total']:,.2f}")
-            col2.metric("Forecast Value", f"${result['forecast_total']:,.2f}", 
-                       delta=f"{result['total_change_pct']:.2f}%")
-            col3.metric("Projected Change", f"${result['total_change']:,.2f}",
-                       delta_color="inverse" if result['total_change'] < 0 else "normal")
+            current_total = float(result['current_total']) if isinstance(result['current_total'], (pd.Series, np.ndarray)) else result['current_total']
+            forecast_total = float(result['forecast_total']) if isinstance(result['forecast_total'], (pd.Series, np.ndarray)) else result['forecast_total']
+            total_change = float(result['total_change']) if isinstance(result['total_change'], (pd.Series, np.ndarray)) else result['total_change']
+            total_change_pct = float(result['total_change_pct']) if isinstance(result['total_change_pct'], (pd.Series, np.ndarray)) else result['total_change_pct']
+            
+            col1.metric("Current Value", f"${current_total:,.2f}")
+            col2.metric("Forecast Value", f"${forecast_total:,.2f}", 
+                       delta=f"{total_change_pct:.2f}%")
+            col3.metric("Projected Change", f"${total_change:,.2f}",
+                       delta_color="inverse" if total_change < 0 else "normal")
             
             st.subheader("Holding Details")
             st.dataframe(result['holdings'].style.format({
