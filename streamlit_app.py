@@ -1,4 +1,9 @@
 import streamlit as st
+
+# Set page config as the first Streamlit command
+st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide", initial_sidebar_state="expanded")
+
+# Other imports
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -17,18 +22,6 @@ from prophet import Prophet
 from fredapi import Fred
 from streamlit_option_menu import option_menu
 
-# Fixed TensorFlow imports with try-except
-try:
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import LSTM, Dense
-except ImportError:
-    st.warning("TensorFlow import failed. LSTM features disabled.")
-    Sequential = None
-    LSTM = None
-    Dense = None
-
-st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide", initial_sidebar_state="expanded")
-
 # Initialize session state
 if 'fed' not in st.session_state:
     st.session_state.fed = 5.25
@@ -46,8 +39,8 @@ if 'fed' not in st.session_state:
     st.session_state.active_tab = "Forecast"
     st.session_state.forecast = None
 
-# FRED API setup (replace with your actual key)
-FRED_API_KEY = "YOUR_FRED_API_KEY"  # Get from https://fred.stlouisfed.org/docs/api/api_key.html
+# FRED API setup (configure as environment variable in Streamlit Cloud)
+FRED_API_KEY = os.getenv("FRED_API_KEY", "YOUR_FRED_API_KEY")
 fred = Fred(api_key=FRED_API_KEY) if FRED_API_KEY != "YOUR_FRED_API_KEY" else None
 
 # Global variables
@@ -59,7 +52,6 @@ poly = None
 available_features = None
 latest_close = 400.0
 prophet_model = None
-lstm_model = None
 shap_explainer = None
 
 def fetch_data(ticker, start_date):
@@ -177,24 +169,6 @@ def train_model(X, y):
         model_xgb.fit(X, y)
         return model_xgb
     except Exception:
-        return None
-
-def create_lstm_model(X_train, y_train):
-    try:
-        # Add this check for small datasets
-        if len(X_train) < 50:
-            st.warning("Insufficient data for LSTM model")
-            return None
-            
-        X_train_3d = X_train.values.reshape((X_train.shape[0], 1, X_train.shape[1]))
-        model = Sequential()
-        model.add(LSTM(50, activation='relu', input_shape=(1, X_train.shape[1])))
-        model.add(Dense(1))
-        model.compile(optimizer='adam', loss='mse')
-        model.fit(X_train_3d, y_train, epochs=20, verbose=0)
-        return model
-    except Exception as e:
-        st.error(f"LSTM training failed: {str(e)}")
         return None
 
 def get_economic_calendar():
@@ -360,7 +334,7 @@ def load_data_and_models():
             poly_features = poly_transformer.fit_transform(X)
             model_poly = LinearRegression().fit(poly_features, y)
 
-        # Prophet model training - FIXED INDENTATION
+        # Prophet model training
         prophet_model = None
         try:
             prophet_df = qqq.reset_index()[['index', 'Close']].rename(columns={'index': 'ds', 'Close': 'y'})
@@ -369,7 +343,6 @@ def load_data_and_models():
         except Exception as e:
             st.error(f"Prophet model failed: {str(e)}")
 
-        lstm_model = create_lstm_model(X, y)
         shap_explainer = None
         try:
             if model_xgb is not None:
@@ -377,13 +350,13 @@ def load_data_and_models():
         except:
             shap_explainer = None
 
-        return qqq, model_xgb, model_linear, model_poly, poly_transformer, available_features, prophet_model, lstm_model, shap_explainer
+        return qqq, model_xgb, model_linear, model_poly, poly_transformer, available_features, prophet_model, shap_explainer
     except Exception:
-        return None, None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
 
 # Load data and models
 with st.spinner("Loading data and training models. This may take up to 1 minute..."):
-    qqq_data, xgb_model, linear_model, poly_model, poly, available_features, prophet_model, lstm_model, shap_explainer = load_data_and_models()
+    qqq_data, xgb_model, linear_model, poly_model, poly, available_features, prophet_model, shap_explainer = load_data_and_models()
 
 # Handle failed data loading
 if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, available_features]):
@@ -425,7 +398,6 @@ if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, availa
     poly_model = LinearRegression().fit(X, y)
     poly = None
     prophet_model = None
-    lstm_model = None
     shap_explainer = None
 
 # Get latest close price
@@ -487,7 +459,7 @@ with st.sidebar.expander("💾 Scenario Manager"):
 # Model selection
 with st.sidebar:
     st.subheader("Model Selection")
-    model_options = ["XGBoost (Default)", "Prophet", "LSTM", "Ensemble Average"]
+    model_options = ["XGBoost (Default)", "Prophet", "Ensemble Average"]
     selected_model = st.radio("Forecasting Model", model_options, index=0)
 
 # Main forecasting UI
@@ -586,20 +558,10 @@ if st.session_state.active_tab == "Forecast":
         except Exception as e:
             st.error(f"Prophet forecast failed: {str(e)}")
     
-    if selected_model in ["LSTM", "Ensemble Average"] and lstm_model is not None:
-        try:
-            X_future = future_df.values.reshape((future_df.shape[0], 1, future_df.shape[1]))
-            lstm_forecast = lstm_model.predict(X_future).flatten()
-            forecasts["LSTM"] = lstm_forecast
-        except Exception as e:
-            st.error(f"LSTM forecast failed: {str(e)}")
-    
     if selected_model == "Ensemble Average" and len(forecasts) > 1:
         forecast = np.mean(list(forecasts.values()), axis=0)
     elif selected_model == "Prophet" and "Prophet" in forecasts:
         forecast = forecasts["Prophet"]
-    elif selected_model == "LSTM" and "LSTM" in forecasts:
-        forecast = forecasts["LSTM"]
     else:
         forecast = forecasts.get("XGBoost", np.full(horizon, latest_close))
     
@@ -741,7 +703,7 @@ if st.session_state.active_tab == "Forecast":
             if poly is not None:
                 back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df))
             else:
-                back_df['Prediction_Poly'] = linear_model.predict(back_df)
+                back bond_df['Prediction_Poly'] = linear_model.predict(back_df)
             back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
             mae = mean_absolute_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction'])
             rmse = np.sqrt(mean_squared_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction']))
@@ -789,7 +751,7 @@ elif st.session_state.active_tab == "Portfolio Impact":
     )
     
     portfolio = {}
-    for line in portfolio_input.split('\n'):
+总书记: for line in portfolio_input.split[:portfolio_input.split('
         if ':' in line:
             parts = line.split(':')
             if len(parts) == 2:
