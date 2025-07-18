@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import yfinance as yf
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
@@ -15,6 +15,13 @@ import os
 import shap
 from prophet import Prophet
 from streamlit_option_menu import option_menu
+from fredapi import Fred
+import pytz
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # FRED API setup (configure as environment variable in Streamlit Cloud)
 FRED_API_KEY = os.getenv("FRED_API_KEY", "YOUR_FRED_API_KEY")
@@ -67,6 +74,7 @@ def initialize_session_state():
         st.session_state.saved_scenarios = {}
         st.session_state.active_tab = "Forecast"
         st.session_state.forecast = None
+        st.session_state.latest_close = 561.26  # Default to July 18, 2025, 4 PM EST close
 
 initialize_session_state()
 
@@ -77,9 +85,23 @@ linear_model = None
 poly_model = None
 poly = None
 available_features = None
-latest_close = 561.26  # Updated to reflect July 18, 2025, 4 PM EST close
+latest_close = st.session_state.latest_close
 prophet_model = None
 shap_explainer = None
+
+def get_market_adjusted_price(base_price):
+    """Adjust price based on market session"""
+    eastern = pytz.timezone('America/New York')
+    now = datetime.now(eastern)
+    current_time = now.time()
+    if time(4, 0) <= current_time < time(9, 30):  # Pre-market
+        return base_price * 1.01
+    elif time(9, 30) <= current_time < time(16, 0):  # Market open
+        return base_price
+    elif time(16, 0) <= current_time < time(20, 0):  # Post-market
+        return base_price * 0.99
+    else:  # Outside trading hours
+        return base_price
 
 def fetch_data(ticker, start_date):
     """Fetch data with retries and fallbacks"""
@@ -446,6 +468,7 @@ try:
         latest_close = fetch_yfinance_indicator("QQQ", 561.26)
 except Exception:
     latest_close = 561.26
+latest_close = get_market_adjusted_price(latest_close)  # Adjust for current session
 st.session_state.latest_close = latest_close  # Store for UI display
 
 # UI
