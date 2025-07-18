@@ -19,25 +19,29 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import os
 import shap
 from prophet import Prophet
-from fredapi import Fred
 from streamlit_option_menu import option_menu
 
-# Initialize session state
-if 'fed' not in st.session_state:
-    st.session_state.fed = 5.25
-    st.session_state.cpi = 3.5
-    st.session_state.unemp = 3.9
-    st.session_state.gdp = 21000
-    st.session_state.vix = 20.0
-    st.session_state.yield_10 = 4.0
-    st.session_state.yield_2 = 3.5
-    st.session_state.eps = 10.0
-    st.session_state.sent = 70
-    st.session_state.macro_bias = 0.0
-    st.session_state.horizon = 30
-    st.session_state.saved_scenarios = {}
-    st.session_state.active_tab = "Forecast"
-    st.session_state.forecast = None
+# Initialize session state after set_page_config
+def initialize_session_state():
+    """Initialize session state variables"""
+    if 'fed' not in st.session_state:
+        st.session_state.fed = 5.25
+        st.session_state.cpi = 3.5
+        st.session_state.unemp = 3.9
+        st.session_state.gdp = 21000
+        st.session_state.vix = 20.0
+        st.session_state.yield_10 = 4.0
+        st.session_state.yield_2 = 3.5
+        st.session_state.eps = 10.0
+        st.session_state.sent = 70
+        st.session_state.macro_bias = 0.0
+        st.session_state.horizon = 30
+        st.session_state.saved_scenarios = {}
+        st.session_state.active_tab = "Forecast"
+        st.session_state.forecast = None
+
+# Call session state initialization
+initialize_session_state()
 
 # FRED API setup (configure as environment variable in Streamlit Cloud)
 FRED_API_KEY = os.getenv("FRED_API_KEY", "YOUR_FRED_API_KEY")
@@ -703,7 +707,7 @@ if st.session_state.active_tab == "Forecast":
             if poly is not None:
                 back_df['Prediction_Poly'] = poly_model.predict(poly.transform(back_df))
             else:
-                back bond_df['Prediction_Poly'] = linear_model.predict(back_df)
+                back_df['Prediction_Poly'] = linear_model.predict(back_df)
             back_df['Prediction'] = (back_df['Prediction'] + back_df['Prediction_Poly']) / 2
             mae = mean_absolute_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction'])
             rmse = np.sqrt(mean_squared_error(qqq_data.loc[back_df.index, 'Close'], back_df['Prediction']))
@@ -751,7 +755,7 @@ elif st.session_state.active_tab == "Portfolio Impact":
     )
     
     portfolio = {}
-总书记: for line in portfolio_input.split[:portfolio_input.split('
+    for line in portfolio_input.split('\n'):
         if ':' in line:
             parts = line.split(':')
             if len(parts) == 2:
