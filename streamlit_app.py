@@ -1,9 +1,4 @@
 import streamlit as st
-
-# Set page config as the first Streamlit command
-st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide", initial_sidebar_state="expanded")
-
-# Other imports
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -25,6 +20,9 @@ from streamlit_option_menu import option_menu
 FRED_API_KEY = os.getenv("FRED_API_KEY", "YOUR_FRED_API_KEY")
 fred = Fred(api_key=FRED_API_KEY) if FRED_API_KEY != "YOUR_FRED_API_KEY" else None
 
+# Set page config as the first Streamlit command
+st.set_page_config(page_title="QQQ Forecast Simulator", layout="wide", initial_sidebar_state="expanded")
+
 def fetch_economic_indicator(series_id, fallback_value):
     """Fetch latest economic indicator value from FRED"""
     try:
@@ -38,14 +36,18 @@ def fetch_economic_indicator(series_id, fallback_value):
         return fallback_value
 
 def fetch_yfinance_indicator(ticker, fallback_value):
-    """Fetch latest indicator value from yfinance"""
-    try:
-        data = yf.download(ticker, period="1d", progress=False)
-        if not data.empty and 'Close' in data.columns:
-            return float(data['Close'].iloc[-1])
-        return fallback_value
-    except Exception:
-        return fallback_value
+    """Fetch latest indicator value from yfinance with retry"""
+    max_retries = 3
+    retry_delay = 5
+    for _ in range(max_retries):
+        try:
+            data = yf.download(ticker, period="1d", progress=False)
+            if not data.empty and 'Close' in data.columns:
+                return float(data['Close'].iloc[-1])
+            return fallback_value
+        except Exception:
+            time.sleep(retry_delay)
+    return fallback_value
 
 # Initialize session state with latest economic indicators
 def initialize_session_state():
@@ -58,15 +60,14 @@ def initialize_session_state():
         st.session_state.vix = fetch_yfinance_indicator('^VIX', 20.0)
         st.session_state.yield_10 = fetch_yfinance_indicator('^TNX', 4.0)
         st.session_state.yield_2 = fetch_yfinance_indicator('^IRX', 3.5)
-        st.session_state.eps = 10.0  # Estimated EPS growth, adjustable in UI
-        st.session_state.sent = 70    # Neutral sentiment, adjustable in UI
+        st.session_state.eps = 10.0
+        st.session_state.sent = 70
         st.session_state.macro_bias = 0.0
         st.session_state.horizon = 30
         st.session_state.saved_scenarios = {}
         st.session_state.active_tab = "Forecast"
         st.session_state.forecast = None
 
-# Call session state initialization
 initialize_session_state()
 
 # Global variables
@@ -76,7 +77,7 @@ linear_model = None
 poly_model = None
 poly = None
 available_features = None
-latest_close = 400.0
+latest_close = 561.26  # Updated to reflect July 18, 2025, 4 PM EST close
 prophet_model = None
 shap_explainer = None
 
@@ -102,7 +103,6 @@ def fetch_data(ticker, start_date):
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(1)
-                
                 df.columns = [str(col).strip().title() for col in df.columns]
                 missing_required = [col for col in expected_columns if col not in df.columns]
                 if not missing_required:
@@ -117,15 +117,15 @@ def fetch_data(ticker, start_date):
         except Exception:
             time.sleep(retry_delay)
 
-    # Fallback to synthetic data
+    # Fallback to synthetic data with updated latest close
     dates = pd.date_range(start=start_date, end=datetime.today())
     df = pd.DataFrame({
-        'Open': np.linspace(100, 500, len(dates)),
-        'High': np.linspace(105, 505, len(dates)),
-        'Low': np.linspace(95, 495, len(dates)),
-        'Close': np.linspace(100, 500, len(dates)),
+        'Open': np.linspace(100, latest_close, len(dates)),
+        'High': np.linspace(105, latest_close * 1.01, len(dates)),
+        'Low': np.linspace(95, latest_close * 0.99, len(dates)),
+        'Close': np.linspace(100, latest_close, len(dates)),
         'Volume': np.linspace(1000000, 5000000, len(dates)),
-        'Adj Close': np.linspace(100, 500, len(dates))
+        'Adj Close': np.linspace(100, latest_close, len(dates))
     }, index=dates)
     return df
 
@@ -152,7 +152,7 @@ def add_technical_indicators(df):
     required_cols = ['Close', 'High', 'Low', 'Volume']
     for col in required_cols:
         if col not in df.columns:
-            df[col] = 100.0
+            df[col] = latest_close
 
     try:
         for span in [9, 20, 50, 200]:
@@ -243,17 +243,17 @@ def portfolio_impact(forecast_prices, portfolio):
             return None
             
         results = []
-        current_total = 0
-        forecast_total = 0
+        current_total = 0.0
+        forecast_total = 0.0
         
         for ticker, qty in portfolio.items():
             try:
                 current_data = yf.download(ticker, period="1d", progress=False)
-                current_price = current_data['Close'].iloc[-1] if not current_data.empty else 0
+                current_price = float(current_data['Close'].iloc[-1]) if not current_data.empty and 'Close' in current_data.columns else 0.0
                 qqq_current = latest_close
-                qqq_forecast = forecast_prices[-1]
-                price_change_pct = (qqq_forecast - qqq_current) / qqq_current
-                forecast_price = current_price * (1 + price_change_pct)
+                qqq_forecast = float(forecast_prices[-1]) if isinstance(forecast_prices, (list, np.ndarray)) else forecast_prices
+                price_change_pct = (qqq_forecast - qqq_current) / qqq_current if qqq_current != 0 else 0.0
+                forecast_price = current_price * (1 + price_change_pct) if current_price != 0 else 0.0
                 current_val = current_price * qty
                 forecast_val = forecast_price * qty
                 
@@ -265,13 +265,23 @@ def portfolio_impact(forecast_prices, portfolio):
                     'Forecast Price': forecast_price,
                     'Forecast Value': forecast_val,
                     'Change': forecast_val - current_val,
-                    'Change %': (forecast_val - current_val) / current_val * 100
+                    'Change %': ((forecast_val - current_val) / current_val * 100) if current_val != 0 else 0.0
                 })
                 
                 current_total += current_val
                 forecast_total += forecast_val
             except Exception as e:
                 st.error(f"Error processing {ticker}: {str(e)}")
+                results.append({
+                    'Ticker': ticker,
+                    'Quantity': qty,
+                    'Current Price': 0.0,
+                    'Current Value': 0.0,
+                    'Forecast Price': 0.0,
+                    'Forecast Value': 0.0,
+                    'Change': 0.0,
+                    'Change %': 0.0
+                })
         
         if not results:
             return None
@@ -280,7 +290,7 @@ def portfolio_impact(forecast_prices, portfolio):
             'current_total': current_total,
             'forecast_total': forecast_total,
             'total_change': forecast_total - current_total,
-            'total_change_pct': (forecast_total - current_total) / current_total * 100
+            'total_change_pct': ((forecast_total - current_total) / current_total * 100) if current_total != 0 else 0.0
         }
     except Exception as e:
         st.error(f"Portfolio calculation failed: {str(e)}")
@@ -388,12 +398,12 @@ with st.spinner("Loading data and training models. This may take up to 1 minute.
 if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, available_features]):
     dates = pd.date_range(start="2018-01-01", end=datetime.today())
     qqq_data = pd.DataFrame({
-        'Open': np.linspace(100, 500, len(dates)),
-        'High': np.linspace(105, 505, len(dates)),
-        'Low': np.linspace(95, 495, len(dates)),
-        'Close': np.linspace(100, 500, len(dates)),
+        'Open': np.linspace(100, latest_close, len(dates)),
+        'High': np.linspace(105, latest_close * 1.01, len(dates)),
+        'Low': np.linspace(95, latest_close * 0.99, len(dates)),
+        'Close': np.linspace(100, latest_close, len(dates)),
         'Volume': np.linspace(1000000, 5000000, len(dates)),
-        'Adj Close': np.linspace(100, 500, len(dates))
+        'Adj Close': np.linspace(100, latest_close, len(dates))
     }, index=dates)
     
     qqq_data = add_technical_indicators(qqq_data)
@@ -426,16 +436,17 @@ if any(x is None for x in [qqq_data, xgb_model, linear_model, poly_model, availa
     prophet_model = None
     shap_explainer = None
 
-# Get latest close price
+# Get latest close price with improved accuracy
 try:
-    if 'Close' in qqq_data.columns and not qqq_data['Close'].empty:
-        latest_close = qqq_data['Close'].iloc[-1]
-        if isinstance(latest_close, pd.Series):
-            latest_close = latest_close.values[0]
-        elif isinstance(latest_close, pd.DataFrame):
-            latest_close = latest_close.iloc[0, 0]
-except:
-    latest_close = 400.0
+    if qqq_data is not None and 'Close' in qqq_data.columns and not qqq_data['Close'].empty:
+        latest_close = float(qqq_data['Close'].iloc[-1])
+        if np.isnan(latest_close):
+            latest_close = fetch_yfinance_indicator("QQQ", 561.26)
+    else:
+        latest_close = fetch_yfinance_indicator("QQQ", 561.26)
+except Exception:
+    latest_close = 561.26
+st.session_state.latest_close = latest_close  # Store for UI display
 
 # UI
 st.title("📈 QQQ Forecast Simulator")
@@ -794,13 +805,13 @@ elif st.session_state.active_tab == "Portfolio Impact":
         st.warning("Please generate a forecast first on the Forecast tab")
     else:
         result = portfolio_impact(st.session_state.forecast, portfolio)
-        if result:
+        if result and not result['holdings'].empty:
             st.subheader("Portfolio Impact Summary")
             col1, col2, col3 = st.columns(3)
-            current_total = float(result['current_total']) if isinstance(result['current_total'], (pd.Series, np.ndarray)) else result['current_total']
-            forecast_total = float(result['forecast_total']) if isinstance(result['forecast_total'], (pd.Series, np.ndarray)) else result['forecast_total']
-            total_change = float(result['total_change']) if isinstance(result['total_change'], (pd.Series, np.ndarray)) else result['total_change']
-            total_change_pct = float(result['total_change_pct']) if isinstance(result['total_change_pct'], (pd.Series, np.ndarray)) else result['total_change_pct']
+            current_total = float(result['current_total'])
+            forecast_total = float(result['forecast_total'])
+            total_change = float(result['total_change'])
+            total_change_pct = float(result['total_change_pct'])
             
             col1.metric("Current Value", f"${current_total:,.2f}")
             col2.metric("Forecast Value", f"${forecast_total:,.2f}", 
@@ -818,7 +829,7 @@ elif st.session_state.active_tab == "Portfolio Impact":
                 'Change %': '{:.2f}%'
             }))
         else:
-            st.error("Failed to calculate portfolio impact")
+            st.error("Failed to calculate portfolio impact. Check portfolio input or forecast data.")
 
 elif st.session_state.active_tab == "Economic Calendar":
     st.header("📅 Economic Calendar")
@@ -838,7 +849,6 @@ elif st.session_state.active_tab == "Model Explainability":
         st.warning("SHAP explainer not available")
     else:
         try:
-            # Get the last available data point
             X_explain = safe_feature_subset(qqq_data, available_features).iloc[[-1]]
             if not X_explain.empty:
                 fig = generate_shap_plot(xgb_model, X_explain)
